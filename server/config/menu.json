@@ -1,0 +1,52 @@
+{
+  "title": "{{BTCUSDT}}",
+  "refresh_after_seconds": 3,
+  "binance": {
+    "symbols": [
+      "BTCUSDT",
+      {"symbol": "ETHUSDT", "market": "spot"},
+      {"symbol": "SOLUSDT", "market": "futures"}
+    ],
+    "api_key": "",
+    "api_secret": "",
+    "base_url": "https://api.binance.com",
+    "futures_base_url": "https://fapi.binance.com",
+    "fetch_interval_seconds": 3
+  },
+  "menu": [
+    {
+      "title": "BTC/USDT  {{BTCUSDT}}",
+      "action": "select",
+      "value": "BTCUSDT"
+    },
+    {
+      "title": "ETH/USDT  {{ETHUSDT}}",
+      "action": "select",
+      "value": "ETHUSDT"
+    },
+    {
+      "title": "SOL/USDT  {{SOLUSDT}}",
+      "action": "select",
+      "value": "SOLUSDT"
+    },
+    {
+      "title": "快捷操作",
+      "children": [
+        {
+          "title": "复制当前日期",
+          "action": "copy",
+          "value": "{{date}}"
+        },
+        {
+          "title": "打开 Glance 仓库",
+          "action": "open_url",
+          "value": "https://github.com/Fu-XDU/glance"
+        }
+      ]
+    },
+    {
+      "title": "退出 Glance",
+      "action": "quit"
+    }
+  ]
+}

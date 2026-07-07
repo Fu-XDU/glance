@@ -1,0 +1,10 @@
+version: '3.5'
+services:
+  glance:
+    image: fuming/glance:latest
+    container_name: glance
+    restart: always
+    ports:
+      - "1423:1423"
+    volumes:
+      - ./config:/app/config:ro
