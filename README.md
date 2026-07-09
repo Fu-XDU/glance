@@ -1,6 +1,6 @@
 <h1 align="center">
   <br>
-  <a href="https://github.com/Fu-XDU/glance"><img src="https://github.com/Fu-XDU/glance/blob/main/app/glance/Assets.xcassets/AppIcon.appiconset/ios-marketing.png?raw=true" alt="glance" width="200" style="border-radius: 22%;"></a>
+  <a href="https://github.com/Fu-XDU/glance"><img src="https://github.com/Fu-XDU/glance/blob/main/app/glance/Assets.xcassets/AppIcon.appiconset/icon-512.png?raw=true" alt="glance" width="200" style="border-radius: 22%;"></a>
   <br>
 Glance
   <br>
