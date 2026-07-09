@@ -24,7 +24,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		42D176452FFD26B500EA187D /* glance.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = glance.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		42D176452FFD26B500EA187D /* Glance.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Glance.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		42D176522FFD26B600EA187D /* glanceTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = glanceTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		42D1765C2FFD26B600EA187D /* glanceUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = glanceUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -98,7 +98,7 @@
 		42D176462FFD26B500EA187D /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				42D176452FFD26B500EA187D /* glance.app */,
+				42D176452FFD26B500EA187D /* Glance.app */,
 				42D176522FFD26B600EA187D /* glanceTests.xctest */,
 				42D1765C2FFD26B600EA187D /* glanceUITests.xctest */,
 			);
@@ -126,8 +126,8 @@
 			name = glance;
 			packageProductDependencies = (
 			);
-			productName = glance;
-			productReference = 42D176452FFD26B500EA187D /* glance.app */;
+			productName = Glance;
+			productReference = 42D176452FFD26B500EA187D /* Glance.app */;
 			productType = "com.apple.product-type.application";
 		};
 		42D176512FFD26B600EA187D /* glanceTests */ = {
@@ -420,7 +420,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = cn.flxdu.glance;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = Glance;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
@@ -448,7 +448,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = cn.flxdu.glance;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = Glance;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
@@ -472,7 +472,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/glance.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/glance";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Glance.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Glance";
 			};
 			name = Debug;
 		};
@@ -492,7 +492,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/glance.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/glance";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Glance.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Glance";
 			};
 			name = Release;
 		};

@@ -6,7 +6,7 @@
 //
 
 import Testing
-@testable import glance
+@testable import Glance
 
 struct glanceTests {
 

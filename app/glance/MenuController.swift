@@ -50,7 +50,9 @@ final class MenuController: NSObject, NSMenuDelegate {
                     let requested = TimeInterval(response.refreshAfterSeconds ?? Int(self.minInterval))
                     self.nextInterval = max(self.minInterval, min(requested, self.maxInterval))
                 } else {
-                    self.statusItem.button?.title = "⚠ 加载失败"
+                    self.currentMenuItems = []
+                    self.statusItem.button?.title = "⚠"
+                    self.statusItem.menu = self.buildMenu(items: [])
                     self.nextInterval = min(self.nextInterval * 2, self.maxInterval)
                 }
                 self.scheduleNext()
@@ -72,9 +74,18 @@ final class MenuController: NSObject, NSMenuDelegate {
         for item in items {
             menu.addItem(makeNSMenuItem(from: item))
         }
+        if items.isEmpty {
+            menu.addItem(makeQuitItem())
+        }
         menu.addItem(NSMenuItem.separator())
         menu.addItem(makeLastUpdatedItem())
         return menu
+    }
+
+    private func makeQuitItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "退出 Glance", action: #selector(quitApp), keyEquivalent: "")
+        item.target = self
+        return item
     }
 
     private func makeNSMenuItem(from item: MenuItem) -> NSMenuItem {
