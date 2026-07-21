@@ -5,6 +5,7 @@ import "strings"
 const (
 	MarketSpot    = "spot"
 	MarketFutures = "futures"
+	MarketStocks  = "stocks"
 
 	defaultFuturesBaseURL = "https://fapi.binance.com"
 )
@@ -31,22 +32,28 @@ func (s SymbolSpec) CacheKey() string {
 
 func (s SymbolSpec) TemplateKey() string {
 	s = s.Normalize()
-	if s.Market == MarketFutures {
+	switch s.Market {
+	case MarketFutures:
 		return "futures:" + s.Symbol
+	case MarketStocks:
+		return "stocks:" + s.Symbol
+	default:
+		return s.Symbol
 	}
-	return s.Symbol
 }
 
 func normalizeMarket(market string) string {
 	switch strings.ToLower(strings.TrimSpace(market)) {
 	case "futures", "future", "perp", "perpetual", "swap":
 		return MarketFutures
+	case "stocks", "stock", "equity", "equities":
+		return MarketStocks
 	default:
 		return MarketSpot
 	}
 }
 
-// ParsePriceQuery 解析模板或 select value，如 "futures:FOOUSDT"。
+// ParsePriceQuery 解析模板或 select value，如 "futures:FOOUSDT" / "stocks:AAPL"。
 func ParsePriceQuery(raw string) SymbolSpec {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

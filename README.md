@@ -11,8 +11,11 @@ Glance
 <p align="center">
 <a href="#license"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License"></a>
 </p>
-
 Glance is a lightweight macOS menu bar client backed by a small Go API server. The server reads `menu.json`, fetches Binance prices in the background, renders template placeholders, and exposes a single HTTP endpoint. The macOS app polls that endpoint and builds its status bar title and menu dynamically—no hard-coded menu structure in the client.
+
+## Screenshot
+
+<img src="https://github.com/Fu-XDU/glance/blob/main/app/screenshots/image-1.png?raw=true" alt="image-1" style="zoom:50%;" />
 
 ## Quick start
 
@@ -68,11 +71,19 @@ Top-level fields:
 
 | Field | Description |
 |-------|-------------|
-| `symbols` | Trading pairs to fetch. String (`"BTCUSDT"`) or object (`{"symbol": "SOLUSDT", "market": "futures"}`) |
-| `api_key` / `api_secret` | Optional Binance API credentials |
-| `base_url` | Spot API base (default `https://api.binance.com`) |
+| `symbols` | Trading pairs to fetch. String (`"BTCUSDT"`) or object (`{"symbol": "SOLUSDT", "market": "futures"}` / `{"symbol": "AAPL", "market": "stocks"}`) |
+| `api_key` / `api_secret` | Binance API credentials. **Required** for `market: "stocks"` (equity MARKET_DATA needs `X-MBX-APIKEY`) |
+| `base_url` | Spot / Stocks API base (default `https://api.binance.com`) |
 | `futures_base_url` | Futures API base (default `https://fapi.binance.com`) |
 | `fetch_interval_seconds` | Server-side price refresh interval (default 10) |
+
+`market` values:
+
+| Market | Example | Notes |
+|--------|---------|-------|
+| `spot` (default) | `BTCUSDT` | Spot `/api/v3/ticker/price` |
+| `futures` | `{"symbol":"SOLUSDT","market":"futures"}` | Futures `/fapi/v1/ticker/price`; template `{{futures:SOLUSDT}}` |
+| `stocks` | `{"symbol":"AAPL","market":"stocks"}` | Stocks `/sapi/v1/equity/market/quote`; mid of bid/ask; template `{{stocks:AAPL}}` |
 
 Symbols are also auto-collected from `{{SYMBOL}}` placeholders in `title` and `menu` when not listed under `binance.symbols`.
 
@@ -86,7 +97,9 @@ Use `{{name}}` in `title`, menu `title`, and menu `value` strings.
 | `{{date}}` | Current date (`2006-01-02`) |
 | `{{datetime}}` | Date and time (`2006-01-02 15:04`) |
 | `{{btc_price}}` | BTC/USDT price (alias for `{{BTCUSDT}}`) |
-| `{{BTCUSDT}}` | Price for the given symbol (any configured trading pair) |
+| `{{BTCUSDT}}` | Price for the given spot symbol |
+| `{{futures:SOLUSDT}}` | Futures price |
+| `{{stocks:AAPL}}` | US equity mid quote (bid/ask average) |
 
 For `action: "select"` items, the server also sets `status_title` to the rendered price; the macOS app uses that as the menu bar title when the symbol is selected.
 

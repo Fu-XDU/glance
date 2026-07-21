@@ -17,6 +17,7 @@ import (
 const (
 	defaultBaseURL       = "https://api.binance.com"
 	defaultFetchInterval = 10 * time.Second
+	equityQuotePath      = "/sapi/v1/equity/market/quote"
 )
 
 // Config Binance REST 客户端配置。
@@ -61,9 +62,16 @@ func Configure(c Config) {
 	displayPrice = make(map[string]string, len(cfg.Symbols))
 	mu.Unlock()
 
+	hasStocks := false
 	for _, spec := range cfg.Symbols {
 		spec = spec.Normalize()
+		if spec.Market == MarketStocks {
+			hasStocks = true
+		}
 		log.Infof("binance symbol configured: %s (%s)", spec.Symbol, spec.Market)
+	}
+	if hasStocks && cfg.APIKey == "" {
+		log.Warn("binance stocks market requires api_key (X-MBX-APIKEY) for /sapi/v1/equity/market/quote")
 	}
 }
 
@@ -101,7 +109,15 @@ type tickerPriceResponse struct {
 	Price  string `json:"price"`
 }
 
-// Price 返回内存中的格式化价格；query 可为 "BTCUSDT" 或 "futures:FOOUSDT"。
+type equityQuoteResponse struct {
+	Symbol   string `json:"symbol"`
+	BidPrice string `json:"bidPrice"`
+	AskPrice string `json:"askPrice"`
+	BidSize  int    `json:"bidSize"`
+	AskSize  int    `json:"askSize"`
+}
+
+// Price 返回内存中的格式化价格；query 可为 "BTCUSDT"、"futures:FOOUSDT" 或 "stocks:AAPL"。
 func Price(query string) string {
 	spec := ResolveSpec(query, cfg.Symbols)
 	if spec.Symbol == "" {
@@ -137,7 +153,7 @@ func refreshPrices() {
 			continue
 		}
 		displayPrice[key] = formatPrice(raw)
-        log.Infof("%v: %v", key, displayPrice[key])
+		log.Infof("%v: %v", key, displayPrice[key])
 	}
 }
 
@@ -155,6 +171,7 @@ func fetchAllPrices(specs []SymbolSpec) map[string]string {
 	byMarket := map[string][]SymbolSpec{
 		MarketSpot:    {},
 		MarketFutures: {},
+		MarketStocks:  {},
 	}
 	for _, spec := range specs {
 		spec = spec.Normalize()
@@ -190,7 +207,8 @@ func fetchMarketPrices(market string, marketSpecs []SymbolSpec) map[string]strin
 		symbols[i] = spec.Symbol
 	}
 
-	if len(symbols) > 1 {
+	// Spot / Futures 支持批量；Equity quote 仅支持单 symbol。
+	if market != MarketStocks && len(symbols) > 1 {
 		if batch, err := requestPrices(market, symbols); err == nil {
 			for _, spec := range marketSpecs {
 				if price, ok := batch[spec.Symbol]; ok {
@@ -230,6 +248,12 @@ func requestPrices(market string, symbols []string) (map[string]string, error) {
 	if len(symbols) == 0 {
 		return nil, fmt.Errorf("no symbols configured")
 	}
+	if market == MarketStocks {
+		if len(symbols) != 1 {
+			return nil, fmt.Errorf("equity quote supports a single symbol only")
+		}
+		return requestEquityQuote(symbols[0])
+	}
 
 	baseURL := cfg.BaseURL
 	pricePath := "/api/v3/ticker/price"
@@ -242,14 +266,12 @@ func requestPrices(market string, symbols []string) (map[string]string, error) {
 	query := url.Values{}
 	if len(symbols) == 1 {
 		query.Set("symbol", symbols[0])
-		// log.Infof("binance requesting %s %s price: %s?%s", market, symbols[0], endpoint, query.Encode())
 	} else {
 		encoded, err := json.Marshal(symbols)
 		if err != nil {
 			return nil, err
 		}
 		query.Set("symbols", string(encoded))
-		// log.Infof("binance requesting %s batch prices: %s?%s", market, endpoint, query.Encode())
 	}
 
 	req, err := http.NewRequest(http.MethodGet, endpoint+"?"+query.Encode(), nil)
@@ -275,6 +297,71 @@ func requestPrices(market string, symbols []string) (map[string]string, error) {
 	}
 
 	return parsePriceResponse(body, len(symbols) == 1)
+}
+
+func requestEquityQuote(symbol string) (map[string]string, error) {
+	if cfg.APIKey == "" {
+		return nil, fmt.Errorf("api_key required for equity market data")
+	}
+
+	endpoint := strings.TrimRight(cfg.BaseURL, "/") + equityQuotePath
+	query := url.Values{}
+	query.Set("symbol", symbol)
+
+	req, err := http.NewRequest(http.MethodGet, endpoint+"?"+query.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-MBX-APIKEY", cfg.APIKey)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("binance equity quote status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 无报价时返回空 body（非 JSON null）。
+	trimmed := strings.TrimSpace(string(body))
+	if trimmed == "" || trimmed == "null" {
+		return nil, fmt.Errorf("empty equity quote for %s", symbol)
+	}
+
+	var quote equityQuoteResponse
+	if err := json.Unmarshal(body, &quote); err != nil {
+		return nil, err
+	}
+	price := midQuotePrice(quote.BidPrice, quote.AskPrice)
+	if price == "" {
+		return nil, fmt.Errorf("invalid equity quote for %s: %s", symbol, trimmed)
+	}
+	outSymbol := quote.Symbol
+	if outSymbol == "" {
+		outSymbol = symbol
+	}
+	return map[string]string{outSymbol: price}, nil
+}
+
+func midQuotePrice(bid, ask string) string {
+	bidVal, bidErr := strconv.ParseFloat(bid, 64)
+	askVal, askErr := strconv.ParseFloat(ask, 64)
+	switch {
+	case bidErr == nil && askErr == nil && bidVal > 0 && askVal > 0:
+		return strconv.FormatFloat((bidVal+askVal)/2, 'f', -1, 64)
+	case askErr == nil && askVal > 0:
+		return ask
+	case bidErr == nil && bidVal > 0:
+		return bid
+	default:
+		return ""
+	}
 }
 
 func parsePriceResponse(body []byte, single bool) (map[string]string, error) {

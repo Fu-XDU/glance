@@ -5,7 +5,9 @@
     "symbols": [
       "BTCUSDT",
       {"symbol": "ETHUSDT", "market": "spot"},
-      {"symbol": "SOLUSDT", "market": "futures"}
+      {"symbol": "SOLUSDT", "market": "futures"},
+      {"symbol": "AAPL", "market": "stocks"},
+      {"symbol": "TSLA", "market": "stocks"}
     ],
     "api_key": "",
     "api_secret": "",
@@ -28,6 +30,16 @@
       "title": "SOL/USDT  {{SOLUSDT}}",
       "action": "select",
       "value": "SOLUSDT"
+    },
+    {
+      "title": "AAPL  {{stocks:AAPL}}",
+      "action": "select",
+      "value": "stocks:AAPL"
+    },
+    {
+      "title": "TSLA  {{stocks:TSLA}}",
+      "action": "select",
+      "value": "stocks:TSLA"
     },
     {
       "title": "快捷操作",

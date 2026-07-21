@@ -10,6 +10,7 @@ final class MenuController: NSObject, NSMenuDelegate {
     private var nextInterval: TimeInterval = 3
     private let minInterval: TimeInterval = 3
     private let maxInterval: TimeInterval = 300
+    private var isMenuOpen = false
 
     private let apiURL = URL(string: "http://127.0.0.1:1423/api/menu")!
     private let selectedSymbolKey = "glance.selectedSymbol"
@@ -45,14 +46,18 @@ final class MenuController: NSObject, NSMenuDelegate {
                 if let data, error == nil, let response = try? JSONDecoder().decode(MenuResponse.self, from: data) {
                     self.lastUpdated = Date()
                     self.currentMenuItems = response.menu
-                    self.statusItem.menu = self.buildMenu(items: response.menu)
-                    self.updateStatusBarTitle(defaultTitle: response.title, items: response.menu)
+                    self.applyMenuData(items: response.menu, defaultTitle: response.title)
                     let requested = TimeInterval(response.refreshAfterSeconds ?? Int(self.minInterval))
                     self.nextInterval = max(self.minInterval, min(requested, self.maxInterval))
                 } else {
                     self.currentMenuItems = []
                     self.statusItem.button?.title = "⚠"
-                    self.statusItem.menu = self.buildMenu(items: [])
+                    if self.isMenuOpen, let menu = self.statusItem.menu {
+                        self.replaceOpenMenuContent(menu, with: [])
+                        self.updateLastUpdatedItem(in: menu)
+                    } else {
+                        self.statusItem.menu = self.buildMenu(items: [])
+                    }
                     self.nextInterval = min(self.nextInterval * 2, self.maxInterval)
                 }
                 self.scheduleNext()
@@ -61,8 +66,22 @@ final class MenuController: NSObject, NSMenuDelegate {
     }
 
     private func scheduleNext() {
-        timer = Timer.scheduledTimer(withTimeInterval: nextInterval, repeats: false) { [weak self] _ in
+        timer?.invalidate()
+        let timer = Timer(timeInterval: nextInterval, repeats: false) { [weak self] _ in
             self?.fetchMenu()
+        }
+        // 菜单打开时 RunLoop 处于 eventTracking，需加入 common 才能继续拉取。
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    private func applyMenuData(items: [MenuItem], defaultTitle: String) {
+        updateStatusBarTitle(defaultTitle: defaultTitle, items: items)
+        if isMenuOpen, let menu = statusItem.menu {
+            updateOpenMenu(menu, with: items)
+            updateLastUpdatedItem(in: menu)
+        } else {
+            statusItem.menu = buildMenu(items: items)
         }
     }
 
@@ -97,30 +116,38 @@ final class MenuController: NSObject, NSMenuDelegate {
             }
             nsItem.submenu = submenu
         } else {
-            switch item.action {
-            case "select":
-                nsItem.representedObject = item.value
-                nsItem.target = self
-                nsItem.action = #selector(selectSymbol(_:))
-                if item.value == selectedSymbol {
-                    nsItem.state = .on
-                }
-            case "open_url":
-                nsItem.representedObject = item.value
-                nsItem.target = self
-                nsItem.action = #selector(openURL(_:))
-            case "copy":
-                nsItem.representedObject = item.value
-                nsItem.target = self
-                nsItem.action = #selector(copyText(_:))
-            case "quit":
-                nsItem.target = self
-                nsItem.action = #selector(quitApp)
-            default:
-                break
-            }
+            configureLeafItem(nsItem, with: item)
         }
         return nsItem
+    }
+
+    private func configureLeafItem(_ nsItem: NSMenuItem, with item: MenuItem) {
+        nsItem.state = .off
+        switch item.action {
+        case "select":
+            nsItem.representedObject = item.value
+            nsItem.target = self
+            nsItem.action = #selector(selectSymbol(_:))
+            if item.value == selectedSymbol {
+                nsItem.state = .on
+            }
+        case "open_url":
+            nsItem.representedObject = item.value
+            nsItem.target = self
+            nsItem.action = #selector(openURL(_:))
+        case "copy":
+            nsItem.representedObject = item.value
+            nsItem.target = self
+            nsItem.action = #selector(copyText(_:))
+        case "quit":
+            nsItem.representedObject = nil
+            nsItem.target = self
+            nsItem.action = #selector(quitApp)
+        default:
+            nsItem.representedObject = nil
+            nsItem.target = nil
+            nsItem.action = nil
+        }
     }
 
     private func makeLastUpdatedItem() -> NSMenuItem {
@@ -140,16 +167,95 @@ final class MenuController: NSObject, NSMenuDelegate {
         return "上次更新：\(hours)小时前"
     }
 
+    /// 菜单打开时就地更新标题/动作，避免替换整个 NSMenu 导致菜单关闭或数值冻结。
+    private func updateOpenMenu(_ menu: NSMenu, with items: [MenuItem]) {
+        let footerCount = 2 // separator + lastUpdated
+        let expectedContentCount = items.isEmpty ? 1 : items.count
+        let currentContentCount = max(0, menu.numberOfItems - footerCount)
+
+        if currentContentCount != expectedContentCount {
+            replaceOpenMenuContent(menu, with: items)
+            return
+        }
+
+        if items.isEmpty {
+            if let quitItem = menu.item(at: 0), quitItem.action == #selector(quitApp) {
+                quitItem.title = "退出 Glance"
+            } else {
+                replaceOpenMenuContent(menu, with: items)
+            }
+            return
+        }
+
+        for (index, item) in items.enumerated() {
+            guard let nsItem = menu.item(at: index) else {
+                replaceOpenMenuContent(menu, with: items)
+                return
+            }
+            updateNSMenuItem(nsItem, with: item)
+        }
+    }
+
+    private func replaceOpenMenuContent(_ menu: NSMenu, with items: [MenuItem]) {
+        let footerCount = 2
+        let removeCount = max(0, menu.numberOfItems - footerCount)
+        for _ in 0..<removeCount {
+            menu.removeItem(at: 0)
+        }
+        if items.isEmpty {
+            menu.insertItem(makeQuitItem(), at: 0)
+        } else {
+            for (index, item) in items.enumerated() {
+                menu.insertItem(makeNSMenuItem(from: item), at: index)
+            }
+        }
+    }
+
+    private func updateNSMenuItem(_ nsItem: NSMenuItem, with item: MenuItem) {
+        nsItem.title = item.title
+        if let children = item.children, !children.isEmpty {
+            if nsItem.submenu == nil {
+                nsItem.submenu = NSMenu(title: item.title)
+                nsItem.action = nil
+                nsItem.target = nil
+                nsItem.representedObject = nil
+            }
+            nsItem.submenu?.title = item.title
+            updateSubmenu(nsItem.submenu!, with: children)
+        } else {
+            if nsItem.submenu != nil {
+                nsItem.submenu = nil
+            }
+            configureLeafItem(nsItem, with: item)
+        }
+    }
+
+    private func updateSubmenu(_ submenu: NSMenu, with items: [MenuItem]) {
+        if submenu.numberOfItems != items.count {
+            submenu.removeAllItems()
+            for item in items {
+                submenu.addItem(makeNSMenuItem(from: item))
+            }
+            return
+        }
+        for (index, item) in items.enumerated() {
+            guard let nsItem = submenu.item(at: index) else { continue }
+            updateNSMenuItem(nsItem, with: item)
+        }
+    }
+
     // MARK: - NSMenuDelegate
 
     func menuWillOpen(_ menu: NSMenu) {
         guard menu === statusItem.menu else { return }
+        isMenuOpen = true
         updateLastUpdatedItem(in: menu)
         startRefreshTimer(for: menu)
     }
 
     func menuDidClose(_ menu: NSMenu) {
         guard menu === statusItem.menu else { return }
+        isMenuOpen = false
         stopRefreshTimer()
     }
 
@@ -205,7 +311,11 @@ final class MenuController: NSObject, NSMenuDelegate {
         if let item = findSelectableItem(symbol: symbol, in: currentMenuItems) {
             statusItem.button?.title = statusBarText(for: item)
         }
-        statusItem.menu = buildMenu(items: currentMenuItems)
+        if isMenuOpen, let menu = statusItem.menu {
+            updateOpenMenu(menu, with: currentMenuItems)
+        } else {
+            statusItem.menu = buildMenu(items: currentMenuItems)
+        }
     }
 
     @objc private func openURL(_ sender: NSMenuItem) {

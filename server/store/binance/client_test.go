@@ -60,8 +60,59 @@ func TestRefreshPrices_futuresSymbol(t *testing.T) {
 	})
 	refreshPrices()
 
-	if got := Price("futures:FOOUSDT"); got != "1.2345" {
+	if got := Price("futures:FOOUSDT"); got != "1.23" {
 		t.Fatalf("unexpected futures price: %s", got)
+	}
+}
+
+func TestRefreshPrices_stocksSymbol(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/sapi/v1/equity/market/quote" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Header.Get("X-MBX-APIKEY") != "test-key" {
+			t.Fatalf("expected API key header, got %q", r.Header.Get("X-MBX-APIKEY"))
+		}
+		if r.URL.Query().Get("symbol") != "AAPL" {
+			t.Fatalf("unexpected symbol: %s", r.URL.Query().Get("symbol"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"symbol":"AAPL","bidPrice":"180.50","askPrice":"180.52","bidSize":100,"askSize":200}`))
+	}))
+	defer server.Close()
+
+	resetState()
+	Configure(Config{
+		BaseURL: server.URL,
+		APIKey:  "test-key",
+		Symbols: []SymbolSpec{{Symbol: "AAPL", Market: MarketStocks}},
+	})
+	refreshPrices()
+
+	if got := Price("stocks:AAPL"); got != "180.51" {
+		t.Fatalf("unexpected stocks mid price: %s", got)
+	}
+	if got := Price("AAPL"); got != "180.51" {
+		t.Fatalf("expected configured stocks market for bare ticker, got %s", got)
+	}
+}
+
+func TestRefreshPrices_stocksEmptyQuote(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	resetState()
+	Configure(Config{
+		BaseURL: server.URL,
+		APIKey:  "test-key",
+		Symbols: []SymbolSpec{{Symbol: "ZZZZ", Market: MarketStocks}},
+	})
+	refreshPrices()
+
+	if got := Price("stocks:ZZZZ"); got != "--" {
+		t.Fatalf("expected placeholder for empty quote, got %q", got)
 	}
 }
 

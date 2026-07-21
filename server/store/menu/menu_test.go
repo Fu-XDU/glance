@@ -112,6 +112,37 @@ func TestLoadBinanceConfig_futuresSymbol(t *testing.T) {
 	}
 }
 
+func TestLoadBinanceConfig_stocksSymbol(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "menu.json")
+	data := `{
+  "binance": {
+    "symbols": [
+      {"symbol": "AAPL", "market": "stocks"}
+    ],
+    "api_key": "key-1"
+  },
+  "menu": [
+    {"title": "AAPL {{stocks:AAPL}}", "action": "select", "value": "stocks:AAPL"}
+  ]
+}`
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	configPath = path
+	cfg, err := LoadBinanceConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.APIKey != "key-1" {
+		t.Fatalf("expected api key, got %q", cfg.APIKey)
+	}
+	if len(cfg.Symbols) != 1 || cfg.Symbols[0].Market != binance.MarketStocks || cfg.Symbols[0].Symbol != "AAPL" {
+		t.Fatalf("unexpected stocks symbol config: %#v", cfg.Symbols)
+	}
+}
+
 func TestLoadResponse_selectItemStatusTitle(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "menu.json")
