@@ -43,6 +43,12 @@ func TestSymbolSpecTemplateKey(t *testing.T) {
 	if got := (SymbolSpec{Symbol: "AAPL", Market: MarketStocks}).TemplateKey(); got != "stocks:AAPL" {
 		t.Fatalf("unexpected stocks template key: %s", got)
 	}
+	if got := (SymbolSpec{Symbol: "AAPL", Market: MarketStocks}).DisplayLabel(); got != "AAPL" {
+		t.Fatalf("unexpected stocks display label: %s", got)
+	}
+	if got := (SymbolSpec{Symbol: "SOLUSDT", Market: MarketFutures}).DisplayLabel(); got != "SOLUSDT" {
+		t.Fatalf("unexpected futures display label: %s", got)
+	}
 }
 
 func TestMidQuotePrice(t *testing.T) {

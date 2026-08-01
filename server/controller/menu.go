@@ -16,3 +16,7 @@ func GetMenu(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, resp)
 }
+
+func GetPricesText(c *gin.Context) {
+	c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(menu.FormatPricesText()))
+}

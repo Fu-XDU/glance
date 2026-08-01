@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"glance/store/binance"
+	"glance/store/cmb"
 )
 
 func parseConfiguredSymbols(raw json.RawMessage) ([]binance.SymbolSpec, error) {
@@ -85,6 +86,9 @@ func collectSymbolSpecs(cfg *Config) ([]binance.SymbolSpec, error) {
 				continue
 			}
 			query := match[1]
+			if cmb.IsQuery(query) {
+				continue
+			}
 			spec := binance.ParsePriceQuery(query)
 			if !strings.Contains(query, ":") && symbolConfigured(out, spec.Symbol) {
 				continue

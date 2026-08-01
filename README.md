@@ -133,9 +133,21 @@ Nested menus use a `children` array instead of `action`. If the API is unreachab
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/menu` | Returns rendered title, refresh interval, and menu tree |
+| GET | `/api/menu` | Returns rendered title, refresh interval, and menu tree (JSON) |
+| GET | `/api/prices` | Returns a plain-text price snapshot for humans |
 
-Example response (abbreviated):
+Example `/api/prices` response:
+
+```text
+BTCUSDT: 97234.50
+ETHUSDT: 3456.12
+SOLUSDT: 178.20
+AAPL: 180.51
+TSLA: 250.10
+USD: 677.83/673.54
+```
+
+Example `/api/menu` response (abbreviated):
 
 ```json
 {

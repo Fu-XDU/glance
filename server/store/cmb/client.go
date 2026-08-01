@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -116,6 +117,26 @@ func Rate(query string) string {
 	default:
 		return displayOrDash(entry.SpotAsk)
 	}
+}
+
+// FormatRateLines 返回纯文本汇率行，格式为 "USD: 卖价/买价"（按币种排序）。
+func FormatRateLines() []string {
+	mu.RLock()
+	defer mu.RUnlock()
+	if len(rates) == 0 {
+		return nil
+	}
+	codes := make([]string, 0, len(rates))
+	for code := range rates {
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
+	out := make([]string, 0, len(codes))
+	for _, code := range codes {
+		entry := rates[code]
+		out = append(out, fmt.Sprintf("%s: %s/%s", code, displayOrDash(entry.SpotAsk), displayOrDash(entry.SpotBid)))
+	}
+	return out
 }
 
 func displayOrDash(v string) string {

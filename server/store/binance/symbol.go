@@ -42,6 +42,11 @@ func (s SymbolSpec) TemplateKey() string {
 	}
 }
 
+// DisplayLabel 用于纯文本行情展示的标签，如 BTCUSDT、AAPL、SOLUSDT。
+func (s SymbolSpec) DisplayLabel() string {
+	return s.Normalize().Symbol
+}
+
 func normalizeMarket(market string) string {
 	switch strings.ToLower(strings.TrimSpace(market)) {
 	case "futures", "future", "perp", "perpetual", "swap":

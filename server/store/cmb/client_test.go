@@ -91,4 +91,9 @@ func TestRefreshAndRate(t *testing.T) {
 	if got := Rate("fx:EUR"); got != "--" {
 		t.Fatalf("missing currency should be --, got %q", got)
 	}
+
+	lines := FormatRateLines()
+	if len(lines) != 1 || lines[0] != "USD: 677.83/673.54" {
+		t.Fatalf("unexpected rate lines: %#v", lines)
+	}
 }

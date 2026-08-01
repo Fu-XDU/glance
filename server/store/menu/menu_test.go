@@ -262,3 +262,16 @@ func TestLoadCmbConfig(t *testing.T) {
 		t.Fatalf("unexpected cmb config: %+v", cfg)
 	}
 }
+
+func TestFormatPricesText(t *testing.T) {
+	binance.Configure(binance.Config{
+		Symbols: []binance.SymbolSpec{
+			{Symbol: "BTCUSDT", Market: binance.MarketSpot},
+			{Symbol: "AAPL", Market: binance.MarketStocks},
+		},
+	})
+	text := FormatPricesText()
+	if !strings.Contains(text, "BTCUSDT: ") || !strings.Contains(text, "AAPL: ") {
+		t.Fatalf("unexpected prices text: %q", text)
+	}
+}
