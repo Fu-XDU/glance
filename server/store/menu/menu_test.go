@@ -175,6 +175,36 @@ func TestLoadResponse_selectItemStatusTitle(t *testing.T) {
 	}
 }
 
+func TestLoadResponse_selectCustomStatusTitle(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "menu.json")
+	data := `{
+  "menu": [
+    {
+      "title": "美元",
+      "action": "select",
+      "value": "fx:USD",
+      "status_title": "{{date}}/{{time}}"
+    }
+  ]
+}`
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	configPath = path
+	resp, err := LoadResponse()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Menu) != 1 || resp.Menu[0].StatusTitle == nil {
+		t.Fatalf("expected custom status_title: %+v", resp.Menu[0])
+	}
+	if strings.Contains(*resp.Menu[0].StatusTitle, "{{") || !strings.Contains(*resp.Menu[0].StatusTitle, "/") {
+		t.Fatalf("expected rendered custom status_title, got %q", *resp.Menu[0].StatusTitle)
+	}
+}
+
 func TestLoadBinanceConfig_fromBinanceBlock(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "menu.json")
@@ -205,5 +235,30 @@ func TestLoadBinanceConfig_fromBinanceBlock(t *testing.T) {
 	}
 	if len(cfg.Symbols) != 2 || cfg.Symbols[0].Symbol != "BTCUSDT" || cfg.Symbols[1].Symbol != "ETHUSDT" {
 		t.Fatalf("unexpected symbols: %#v", cfg.Symbols)
+	}
+}
+
+func TestLoadCmbConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "menu.json")
+	data := `{
+  "cmb": {
+    "enabled": true,
+    "url": "https://example.com/fx",
+    "fetch_interval_seconds": 90
+  },
+  "menu": []
+}`
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	configPath = path
+	cfg, err := LoadCmbConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Enabled || cfg.URL != "https://example.com/fx" || cfg.FetchInterval != 90*time.Second {
+		t.Fatalf("unexpected cmb config: %+v", cfg)
 	}
 }

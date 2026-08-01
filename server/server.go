@@ -6,6 +6,7 @@ import (
 
 	"glance/routes"
 	"glance/store/binance"
+	"glance/store/cmb"
 	"glance/store/menu"
 
 	mingfuflags "github.com/Fu-XDU/mingfu_go_common/flags"
@@ -60,8 +61,16 @@ func prepare(ctx *cli.Context) (err error) {
 
 	binance.Configure(binanceCfg)
 	binance.Start()
+
+	cmbCfg, err := menu.LoadCmbConfig()
+	if err != nil {
+		return fmt.Errorf("load cmb config: %w", err)
+	}
+	cmb.Configure(cmbCfg)
+	cmb.Start()
+
 	routes.Run()
-	return
+	return nil
 }
 
 func main() {

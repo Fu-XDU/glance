@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"glance/store/binance"
+	"glance/store/cmb"
 )
 
 const (
@@ -44,11 +45,19 @@ type BinanceSettings struct {
 	FetchIntervalSeconds *int            `json:"fetch_interval_seconds,omitempty"`
 }
 
+// CmbSettings 招商银行外汇配置，写在 menu.json 的 cmb 字段中。
+type CmbSettings struct {
+	Enabled              *bool  `json:"enabled,omitempty"`
+	URL                  string `json:"url,omitempty"`
+	FetchIntervalSeconds *int   `json:"fetch_interval_seconds,omitempty"`
+}
+
 // Config 菜单配置文件结构。
 type Config struct {
 	Title               string           `json:"title"`
 	RefreshAfterSeconds *int             `json:"refresh_after_seconds,omitempty"`
 	Binance             *BinanceSettings `json:"binance,omitempty"`
+	Cmb                 *CmbSettings     `json:"cmb,omitempty"`
 	Symbols             []string         `json:"symbols,omitempty"` // 兼容旧配置
 	Menu                []Item           `json:"menu"`
 }
@@ -102,6 +111,27 @@ func LoadBinanceConfig() (binance.Config, error) {
 	return out, nil
 }
 
+// LoadCmbConfig 从 menu.json 读取招行外汇配置。
+func LoadCmbConfig() (cmb.Config, error) {
+	cfg, err := loadConfig()
+	if err != nil {
+		return cmb.Config{}, err
+	}
+
+	out := cmb.Config{Enabled: true}
+	if cfg.Cmb == nil {
+		return out, nil
+	}
+	if cfg.Cmb.Enabled != nil {
+		out.Enabled = *cfg.Cmb.Enabled
+	}
+	out.URL = cfg.Cmb.URL
+	if cfg.Cmb.FetchIntervalSeconds != nil {
+		out.FetchInterval = time.Duration(*cfg.Cmb.FetchIntervalSeconds) * time.Second
+	}
+	return out, nil
+}
+
 func loadConfig() (*Config, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -144,7 +174,12 @@ func (c *templateContext) getPrice(query string) string {
 	if price, ok := c.prices[query]; ok {
 		return price
 	}
-	price := binance.Price(query)
+	var price string
+	if cmb.IsQuery(query) {
+		price = cmb.Rate(query)
+	} else {
+		price = binance.Price(query)
+	}
 	c.prices[query] = price
 	return price
 }
@@ -163,8 +198,13 @@ func renderItem(item Item, ctx *templateContext) Item {
 		action := renderTemplate(*item.Action, ctx)
 		out.Action = &action
 		if *item.Action == "select" && item.Value != nil {
-			price := ctx.getPrice(*item.Value)
-			out.StatusTitle = &price
+			if item.StatusTitle != nil {
+				statusTitle := renderTemplate(*item.StatusTitle, ctx)
+				out.StatusTitle = &statusTitle
+			} else {
+				price := ctx.getPrice(*item.Value)
+				out.StatusTitle = &price
+			}
 		}
 	}
 	if item.Value != nil {

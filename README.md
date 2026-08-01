@@ -65,6 +65,7 @@ Top-level fields:
 | `title` | Menu bar default title; supports `{{placeholders}}` |
 | `refresh_after_seconds` | Hint for the macOS client poll interval (client clamps to 3–300 s) |
 | `binance` | Binance REST settings and symbol list |
+| `cmb` | China Merchants Bank FX rate settings |
 | `menu` | Menu tree returned to the client |
 
 `binance` block:
@@ -85,6 +86,14 @@ Top-level fields:
 | `futures` | `{"symbol":"SOLUSDT","market":"futures"}` | Futures `/fapi/v1/ticker/price`; template `{{futures:SOLUSDT}}` |
 | `stocks` | `{"symbol":"AAPL","market":"stocks"}` | Stocks `/sapi/v1/equity/market/quote`; mid of bid/ask; template `{{stocks:AAPL}}` |
 
+`cmb` block (招商银行外汇，接口 [fx.cmbchina.com/api/v1/fx/rate](https://fx.cmbchina.com/api/v1/fx/rate)):
+
+| Field | Description |
+|-------|-------------|
+| `enabled` | Whether to poll CMB FX rates (default `true` when block omitted) |
+| `url` | FX rate endpoint (default `https://fx.cmbchina.com/api/v1/fx/rate`) |
+| `fetch_interval_seconds` | Server-side FX refresh interval (default 60) |
+
 Symbols are also auto-collected from `{{SYMBOL}}` placeholders in `title` and `menu` when not listed under `binance.symbols`.
 
 ## Template placeholders
@@ -100,8 +109,12 @@ Use `{{name}}` in `title`, menu `title`, and menu `value` strings.
 | `{{BTCUSDT}}` | Price for the given spot symbol |
 | `{{futures:SOLUSDT}}` | Futures price |
 | `{{stocks:AAPL}}` | US equity mid quote (bid/ask average) |
+| `{{fx:USD}}` | CMB USD spot ask (现汇卖出) |
+| `{{fx:USD_bid}}` / `{{fx:USD_ask}}` | CMB spot bid / ask |
+| `{{fx:USD_mid}}` | CMB reference mid (`rtbBid`) |
+| `{{fx:USD_cash_bid}}` / `{{fx:USD_cash_ask}}` | CMB cash bid / ask |
 
-For `action: "select"` items, the server also sets `status_title` to the rendered price; the macOS app uses that as the menu bar title when the symbol is selected.
+For `action: "select"` items, the server sets `status_title` used as the menu bar title when selected. By default it is the price for `value`; you can override with an explicit `status_title` template (e.g. `"{{fx:USD_bid}}/{{fx:USD_ask}}"`).
 
 ## Menu actions
 

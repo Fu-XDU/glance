@@ -15,6 +15,11 @@
     "futures_base_url": "https://fapi.binance.com",
     "fetch_interval_seconds": 3
   },
+  "cmb": {
+    "enabled": true,
+    "url": "https://fx.cmbchina.com/api/v1/fx/rate",
+    "fetch_interval_seconds": 60
+  },
   "menu": [
     {
       "title": "BTC/USDT  {{BTCUSDT}}",
@@ -40,6 +45,70 @@
       "title": "TSLA  {{stocks:TSLA}}",
       "action": "select",
       "value": "stocks:TSLA"
+    },
+    {
+      "title": "外汇汇率",
+      "children": [
+        {
+          "title": "港币 HKD  卖{{fx:HKD_ask}} 买{{fx:HKD_bid}}",
+          "action": "select",
+          "value": "fx:HKD",
+          "status_title": "{{fx:HKD_ask}}/{{fx:HKD_bid}}"
+        },
+        {
+          "title": "新西兰元 NZD  卖{{fx:NZD_ask}} 买{{fx:NZD_bid}}",
+          "action": "select",
+          "value": "fx:NZD",
+          "status_title": "{{fx:NZD_ask}}/{{fx:NZD_bid}}"
+        },
+        {
+          "title": "澳大利亚元 AUD  卖{{fx:AUD_ask}} 买{{fx:AUD_bid}}",
+          "action": "select",
+          "value": "fx:AUD",
+          "status_title": "{{fx:AUD_ask}}/{{fx:AUD_bid}}"
+        },
+        {
+          "title": "美元 USD  卖{{fx:USD_ask}} 买{{fx:USD_bid}}",
+          "action": "select",
+          "value": "fx:USD",
+          "status_title": "{{fx:USD_ask}}/{{fx:USD_bid}}"
+        },
+        {
+          "title": "欧元 EUR  卖{{fx:EUR_ask}} 买{{fx:EUR_bid}}",
+          "action": "select",
+          "value": "fx:EUR",
+          "status_title": "{{fx:EUR_ask}}/{{fx:EUR_bid}}"
+        },
+        {
+          "title": "加拿大元 CAD  卖{{fx:CAD_ask}} 买{{fx:CAD_bid}}",
+          "action": "select",
+          "value": "fx:CAD",
+          "status_title": "{{fx:CAD_ask}}/{{fx:CAD_bid}}"
+        },
+        {
+          "title": "英镑 GBP  卖{{fx:GBP_ask}} 买{{fx:GBP_bid}}",
+          "action": "select",
+          "value": "fx:GBP",
+          "status_title": "{{fx:GBP_ask}}/{{fx:GBP_bid}}"
+        },
+        {
+          "title": "日元 JPY  卖{{fx:JPY_ask}} 买{{fx:JPY_bid}}",
+          "action": "select",
+          "value": "fx:JPY",
+          "status_title": "{{fx:JPY_ask}}/{{fx:JPY_bid}}"
+        },
+        {
+          "title": "新加坡元 SGD  卖{{fx:SGD_ask}} 买{{fx:SGD_bid}}",
+          "action": "select",
+          "value": "fx:SGD",
+          "status_title": "{{fx:SGD_ask}}/{{fx:SGD_bid}}"
+        },
+        {
+          "title": "打开招行外汇实时汇率",
+          "action": "open_url",
+          "value": "https://fx.cmbchina.com/hq"
+        }
+      ]
     },
     {
       "title": "快捷操作",
