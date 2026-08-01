@@ -1,0 +1,122 @@
+version: 2.1
+executors:
+  tencent-cloud-hk:
+    machine: true
+    resource_class: mac-mini/server-1
+    working_directory: /var/opt/circleci/workdir/glance
+    shell: /usr/bin/bash
+workflows:
+  build:
+    jobs:
+      - clone-or-pull-repo
+      - build:
+          requires:
+            - clone-or-pull-repo
+      - deploy:
+          requires:
+            - build
+      - push-dockerhub:
+          requires:
+            - build
+      - clean-image:
+          requires:
+            - push-dockerhub
+
+jobs:
+  clone-or-pull-repo:
+    executor: tencent-cloud-hk
+    working_directory: /var/opt/circleci/workdir
+    steps:
+      - run:
+          name: "Check tools"
+          command: |
+            echo "Current user: $(whoami)"
+            echo "Current dir: $(pwd)"
+            echo "Current shell: $SHELL"
+            echo "git version: $(git --version)"
+      - run:
+          name: "Clone or Pull glance repo"
+          command: |
+            if [ -d "glance" ] && [ ! -d "glance/.git" ]; then
+              echo "Error: Directory 'glance' exists but is not a Git repository." >&2
+              exit 1
+            fi
+            grep -q github.com ~/.ssh/known_hosts 2>/dev/null || ssh-keyscan -t rsa,ed25519 github.com >> ~/.ssh/known_hosts
+            if [ ! -d "glance/.git" ]; then
+              echo "Cloning repository..."
+              git clone git@github.com:Fu-XDU/glance.git
+            else
+              echo "Pulling latest changes..."
+              cd glance
+              git reset --hard
+              git clean -fd
+              git pull origin main
+            fi
+  build:
+    executor: tencent-cloud-hk
+    working_directory: /var/opt/circleci/workdir/glance/server
+    steps:
+      - run:
+          name: "Check tools"
+          command: |
+            cat ~/.profile >> "$BASH_ENV"
+            source "$BASH_ENV"
+            echo "Current user: $(whoami)"
+            echo "Current dir: $(pwd)"
+            echo "Current shell: $SHELL"
+            echo "Docker version: $(docker -v)"
+            echo "Docker compose version: $(docker-compose -v)"
+      - run:
+          name: "Build docker image"
+          command: |
+            make docker
+  deploy:
+    executor: tencent-cloud-hk
+    steps:
+      - run:
+          name: "Deploy"
+          command: |
+            docker-compose -f /var/opt/circleci/glance/server/docker-compose.yaml down
+            docker-compose -f /var/opt/circleci/glance/server/docker-compose.yaml up -d
+  push-dockerhub:
+    executor: tencent-cloud-hk
+    steps:
+      - run:
+          name: "Push image to Docker Hub (soft-fail)"
+          command: |
+            set +e
+            cat ~/.profile >> "$BASH_ENV" 2>/dev/null || true
+            source "$BASH_ENV" 2>/dev/null || true
+
+            IMG_NAME="${IMG_NAME:-fuming/standby_web}"
+            GIT_COMMIT="$(git rev-parse --short=8 HEAD)"
+
+            if [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
+              echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+              if [ $? -ne 0 ]; then
+                echo "Warning: docker login failed (degraded), skip push"
+                exit 0
+              fi
+            else
+              echo "DOCKERHUB_USERNAME / DOCKERHUB_TOKEN not set; relying on existing docker login"
+            fi
+
+            echo "Pushing ${IMG_NAME}:${GIT_COMMIT}..."
+            if ! docker push "${IMG_NAME}:${GIT_COMMIT}"; then
+              echo "Warning: push ${IMG_NAME}:${GIT_COMMIT} failed (degraded)"
+            fi
+
+            echo "Pushing ${IMG_NAME}:latest..."
+            if ! docker push "${IMG_NAME}:latest"; then
+              echo "Warning: push ${IMG_NAME}:latest failed (degraded)"
+            fi
+
+            echo "Docker Hub push finished (failures are non-blocking)"
+            exit 0
+  clean-image:
+    executor: tencent-cloud-hk
+    steps:
+      - run:
+          name: "Clean image git_commit tag"
+          command: |
+            docker rmi "${IMG_NAME}:${GIT_COMMIT}"

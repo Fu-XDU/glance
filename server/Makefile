@@ -4,6 +4,7 @@ SHELL := /bin/bash
 
 VERSION ?= latest
 IMG_NAME ?= fuming/glance
+GIT_COMMIT := $(shell git rev-parse --short=8 HEAD)
 
 BACKEND_OUT ?= bin/server
 
@@ -14,7 +15,7 @@ help:
 	@echo "  dev       Run server with go run"
 	@echo "  test      Run Go tests"
 	@echo "  clean     Remove build artifacts"
-	@echo "  docker    Build image $(IMG_NAME):$(VERSION)"
+	@echo "  docker    Build image $(IMG_NAME):$(VERSION) / latest / $(GIT_COMMIT)"
 
 build:
 	@set -euo pipefail; \
@@ -38,4 +39,4 @@ clean:
 	@rm -rf "$(BACKEND_OUT)"
 
 docker:
-	docker build -t $(IMG_NAME):$(VERSION) -t $(IMG_NAME):latest -f Dockerfile .
+	docker build -t $(IMG_NAME):$(VERSION) -t $(IMG_NAME):latest -t $(IMG_NAME):$(GIT_COMMIT) -f Dockerfile .
