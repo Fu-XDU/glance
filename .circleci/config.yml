@@ -76,8 +76,8 @@ jobs:
       - run:
           name: "Deploy"
           command: |
-            docker-compose -f /var/opt/circleci/glance/server/docker-compose.yaml down
-            docker-compose -f /var/opt/circleci/glance/server/docker-compose.yaml up -d
+            docker-compose -f /var/opt/circleci/docker/glance/docker-compose.yaml down
+            docker-compose -f /var/opt/circleci/docker/glance/docker-compose.yaml up -d
   push-dockerhub:
     executor: tencent-cloud-hk
     steps:
@@ -88,7 +88,7 @@ jobs:
             cat ~/.profile >> "$BASH_ENV" 2>/dev/null || true
             source "$BASH_ENV" 2>/dev/null || true
 
-            IMG_NAME="${IMG_NAME:-fuming/standby_web}"
+            IMG_NAME="${IMG_NAME:-fuming/glance}"
             GIT_COMMIT="$(git rev-parse --short=8 HEAD)"
 
             if [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
@@ -119,4 +119,11 @@ jobs:
       - run:
           name: "Clean image git_commit tag"
           command: |
+            set +e
+            cat ~/.profile >> "$BASH_ENV" 2>/dev/null || true
+            source "$BASH_ENV" 2>/dev/null || true
+
+            IMG_NAME="${IMG_NAME:-fuming/glance}"
+            GIT_COMMIT="$(git rev-parse --short=8 HEAD)"
+
             docker rmi "${IMG_NAME}:${GIT_COMMIT}"
