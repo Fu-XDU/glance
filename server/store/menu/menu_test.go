@@ -141,6 +141,63 @@ func TestLoadBinanceConfig_stocksSymbol(t *testing.T) {
 	if len(cfg.Symbols) != 1 || cfg.Symbols[0].Market != binance.MarketStocks || cfg.Symbols[0].Symbol != "AAPL" {
 		t.Fatalf("unexpected stocks symbol config: %#v", cfg.Symbols)
 	}
+	if cfg.Symbols[0].Source != binance.SourceBinance {
+		t.Fatalf("expected default binance source, got %#v", cfg.Symbols[0])
+	}
+}
+
+func TestLoadBinanceConfig_longbridgeSource(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "menu.json")
+	data := `{
+  "binance": {
+    "symbols": [
+      {"symbol": "TSLA", "market": "stocks", "source": "LongBridge"}
+    ]
+  },
+  "menu": []
+}`
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	configPath = path
+	cfg, err := LoadBinanceConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Symbols) != 1 || cfg.Symbols[0].Symbol != "TSLA" || cfg.Symbols[0].Market != binance.MarketStocks {
+		t.Fatalf("unexpected longbridge symbol config: %#v", cfg.Symbols)
+	}
+	if cfg.Symbols[0].Source != binance.SourceLongBridge {
+		t.Fatalf("expected longbridge source, got %#v", cfg.Symbols[0])
+	}
+}
+
+func TestLoadLongBridgeConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "menu.json")
+	data := `{
+  "longbridge": {
+    "app_key": "key-1",
+    "app_secret": "secret-1",
+    "access_token": "token-1",
+    "region": "cn"
+  },
+  "menu": []
+}`
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	configPath = path
+	cfg, err := LoadLongBridgeConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AppKey != "key-1" || cfg.AppSecret != "secret-1" || cfg.AccessToken != "token-1" || cfg.Region != "cn" {
+		t.Fatalf("unexpected longbridge config: %+v", cfg)
+	}
 }
 
 func TestLoadResponse_selectItemStatusTitle(t *testing.T) {

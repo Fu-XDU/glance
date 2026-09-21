@@ -39,11 +39,12 @@ func parseSymbolEntry(raw json.RawMessage) (binance.SymbolSpec, error) {
 	var obj struct {
 		Symbol string `json:"symbol"`
 		Market string `json:"market"`
+		Source string `json:"source"`
 	}
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		return binance.SymbolSpec{}, err
 	}
-	return binance.SymbolSpec{Symbol: obj.Symbol, Market: obj.Market}, nil
+	return binance.SymbolSpec{Symbol: obj.Symbol, Market: obj.Market, Source: obj.Source}, nil
 }
 
 func collectSymbolSpecs(cfg *Config) ([]binance.SymbolSpec, error) {

@@ -10,6 +10,7 @@ import (
 
 	"glance/store/binance"
 	"glance/store/cmb"
+	"glance/store/longbridge"
 )
 
 const (
@@ -18,10 +19,10 @@ const (
 )
 
 var (
-	configPath          = defaultConfigPath
-	configPathOnce      sync.Once
-	templatePlaceholder = regexp.MustCompile(`\{\{([A-Za-z0-9_:{.-]{2,40})\}\}`)
-	reservedPlaceholders  = map[string]struct{}{
+	configPath           = defaultConfigPath
+	configPathOnce       sync.Once
+	templatePlaceholder  = regexp.MustCompile(`\{\{([A-Za-z0-9_:{.-]{2,40})\}\}`)
+	reservedPlaceholders = map[string]struct{}{
 		"time": {}, "date": {}, "datetime": {}, "btc_price": {},
 	}
 )
@@ -52,14 +53,24 @@ type CmbSettings struct {
 	FetchIntervalSeconds *int   `json:"fetch_interval_seconds,omitempty"`
 }
 
+// LongBridgeSettings 长桥行情凭证，写在 menu.json 的 longbridge 字段中。
+// 空字段回退到环境变量 LONGBRIDGE_APP_KEY / LONGBRIDGE_APP_SECRET / LONGBRIDGE_ACCESS_TOKEN / LONGBRIDGE_REGION。
+type LongBridgeSettings struct {
+	AppKey      string `json:"app_key,omitempty"`
+	AppSecret   string `json:"app_secret,omitempty"`
+	AccessToken string `json:"access_token,omitempty"`
+	Region      string `json:"region,omitempty"`
+}
+
 // Config 菜单配置文件结构。
 type Config struct {
-	Title               string           `json:"title"`
-	RefreshAfterSeconds *int             `json:"refresh_after_seconds,omitempty"`
-	Binance             *BinanceSettings `json:"binance,omitempty"`
-	Cmb                 *CmbSettings     `json:"cmb,omitempty"`
-	Symbols             []string         `json:"symbols,omitempty"` // 兼容旧配置
-	Menu                []Item           `json:"menu"`
+	Title               string              `json:"title"`
+	RefreshAfterSeconds *int                `json:"refresh_after_seconds,omitempty"`
+	Binance             *BinanceSettings    `json:"binance,omitempty"`
+	Cmb                 *CmbSettings        `json:"cmb,omitempty"`
+	LongBridge          *LongBridgeSettings `json:"longbridge,omitempty"`
+	Symbols             []string            `json:"symbols,omitempty"` // 兼容旧配置
+	Menu                []Item              `json:"menu"`
 }
 
 // Response GET /api/menu 响应体。
@@ -129,6 +140,24 @@ func LoadCmbConfig() (cmb.Config, error) {
 	if cfg.Cmb.FetchIntervalSeconds != nil {
 		out.FetchInterval = time.Duration(*cfg.Cmb.FetchIntervalSeconds) * time.Second
 	}
+	return out, nil
+}
+
+// LoadLongBridgeConfig 从 menu.json 读取长桥配置。
+func LoadLongBridgeConfig() (longbridge.Config, error) {
+	cfg, err := loadConfig()
+	if err != nil {
+		return longbridge.Config{}, err
+	}
+
+	out := longbridge.Config{}
+	if cfg.LongBridge == nil {
+		return out, nil
+	}
+	out.AppKey = cfg.LongBridge.AppKey
+	out.AppSecret = cfg.LongBridge.AppSecret
+	out.AccessToken = cfg.LongBridge.AccessToken
+	out.Region = cfg.LongBridge.Region
 	return out, nil
 }
 

@@ -6,14 +6,22 @@
       "BTCUSDT",
       {"symbol": "ETHUSDT", "market": "spot"},
       {"symbol": "SOLUSDT", "market": "futures"},
-      {"symbol": "AAPL", "market": "stocks"},
-      {"symbol": "TSLA", "market": "stocks"}
+      {"symbol": "AAPL", "market": "stocks", "source": "Binance"},
+      {"symbol": "TSLA", "market": "stocks", "source": "Binance"},
+      {"symbol": "GOOG.US", "market": "stocks", "source": "LongBridge"},
+      {"symbol": "00700.HK", "market": "stocks", "source": "LongBridge"}
     ],
     "api_key": "",
     "api_secret": "",
     "base_url": "https://api.binance.com",
     "futures_base_url": "https://fapi.binance.com",
     "fetch_interval_seconds": 3
+  },
+  "longbridge": {
+    "app_key": "",
+    "app_secret": "",
+    "access_token": "",
+    "region": "cn"
   },
   "cmb": {
     "enabled": true,
@@ -45,6 +53,16 @@
       "title": "TSLA  {{stocks:TSLA}}",
       "action": "select",
       "value": "stocks:TSLA"
+    },
+    {
+      "title": "GOOG  {{stocks:GOOG.US}}",
+      "action": "select",
+      "value": "stocks:GOOG.US"
+    },
+    {
+      "title": "0700  {{stocks:00700.HK}}",
+      "action": "select",
+      "value": "stocks:00700.HK"
     },
     {
       "title": "外汇汇率",

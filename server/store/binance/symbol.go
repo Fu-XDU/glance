@@ -7,21 +7,26 @@ const (
 	MarketFutures = "futures"
 	MarketStocks  = "stocks"
 
+	SourceBinance    = "binance"
+	SourceLongBridge = "longbridge"
+
 	defaultFuturesBaseURL = "https://fapi.binance.com"
 )
 
-var defaultSymbolSpecs = []SymbolSpec{{Symbol: "BTCUSDT", Market: MarketSpot}}
+var defaultSymbolSpecs = []SymbolSpec{{Symbol: "BTCUSDT", Market: MarketSpot, Source: SourceBinance}}
 
-// SymbolSpec 单个交易对及其市场类型。
+// SymbolSpec 单个交易对及其市场类型与数据源。
 type SymbolSpec struct {
 	Symbol string
 	Market string
+	Source string
 }
 
 func (s SymbolSpec) Normalize() SymbolSpec {
 	return SymbolSpec{
 		Symbol: strings.ToUpper(strings.TrimSpace(s.Symbol)),
 		Market: normalizeMarket(s.Market),
+		Source: normalizeSource(s.Source),
 	}
 }
 
@@ -56,6 +61,20 @@ func normalizeMarket(market string) string {
 	default:
 		return MarketSpot
 	}
+}
+
+func normalizeSource(source string) string {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "longbridge":
+		return SourceLongBridge
+	default:
+		return SourceBinance
+	}
+}
+
+// UsesLongBridge 是否从 LongBridge 拉取该标的。只认 source，不看 market。
+func (s SymbolSpec) UsesLongBridge() bool {
+	return s.Normalize().Source == SourceLongBridge
 }
 
 // ParsePriceQuery 解析模板或 select value，如 "futures:FOOUSDT" / "stocks:AAPL"。
