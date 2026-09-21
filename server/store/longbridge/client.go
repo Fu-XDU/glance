@@ -8,19 +8,26 @@ import (
 	"sync"
 	"time"
 
+	"glance/store/symbol"
+
 	"github.com/labstack/gommon/log"
 	lbconfig "github.com/longbridge/openapi-go/config"
 	"github.com/longbridge/openapi-go/quote"
 )
 
-const defaultQuoteTimeout = 8 * time.Second
+const (
+	defaultQuoteTimeout  = 8 * time.Second
+	defaultFetchInterval = 10 * time.Second
+)
 
-// Config LongBridge 行情凭证。空字段回退到环境变量。
+// Config LongBridge 行情配置。凭证空字段回退到环境变量。
 type Config struct {
-	AppKey      string
-	AppSecret   string
-	AccessToken string
-	Region      string
+	AppKey        string
+	AppSecret     string
+	AccessToken   string
+	Region        string
+	Symbols       []symbol.Spec
+	FetchInterval time.Duration
 }
 
 type quoteClient interface {
@@ -35,17 +42,116 @@ var (
 	client   quoteClient
 
 	newQuoteClient = connectQuoteClient
+
+	mu           sync.RWMutex
+	displayPrice map[string]string
+	lastUpdated  time.Time
 )
 
-// Configure 保存 LongBridge 凭证（进程启动时调用一次）。
+// Configure 保存 LongBridge 配置（进程启动时调用一次）。
 func Configure(c Config) {
 	clientMu.Lock()
-	defer clientMu.Unlock()
 	if client != nil {
 		_ = client.Close()
 		client = nil
 	}
+	clientMu.Unlock()
+
+	if c.FetchInterval <= 0 {
+		c.FetchInterval = defaultFetchInterval
+	}
+	c.Symbols = symbol.NormalizeSpecs(c.Symbols)
 	cfg = c
+
+	mu.Lock()
+	displayPrice = make(map[string]string, len(cfg.Symbols))
+	mu.Unlock()
+
+	for _, spec := range cfg.Symbols {
+		log.Infof("longbridge symbol configured: %s (%s)", spec.Symbol, spec.Market)
+	}
+}
+
+// SymbolSpecs 返回当前配置的标的列表。
+func SymbolSpecs() []symbol.Spec {
+	out := make([]symbol.Spec, len(cfg.Symbols))
+	copy(out, cfg.Symbols)
+	return out
+}
+
+// Symbols 返回模板占位符列表。
+func Symbols() []string {
+	return symbol.TemplateKeys(SymbolSpecs())
+}
+
+// Owns 当前 LongBridge 配置是否包含该 query 对应的标的。
+func Owns(query string) bool {
+	return symbol.Owns(query, cfg.Symbols)
+}
+
+// Price 返回内存中的格式化价格；query 可为 "stocks:GOOG.US" 或 "GOOG.US"。
+func Price(query string) string {
+	spec := symbol.ResolveSpec(query, cfg.Symbols)
+	if spec.Symbol == "" {
+		return "--"
+	}
+	mu.RLock()
+	defer mu.RUnlock()
+	if price, ok := displayPrice[spec.CacheKey()]; ok && price != "" {
+		return price
+	}
+	return "--"
+}
+
+// Start 启动后台定时拉取。无标的时不连接。
+func Start() {
+	if len(cfg.Symbols) == 0 {
+		return
+	}
+	refreshPrices()
+	go func() {
+		ticker := time.NewTicker(cfg.FetchInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			refreshPrices()
+		}
+	}()
+}
+
+func refreshPrices() {
+	if len(cfg.Symbols) == 0 {
+		return
+	}
+	symbols := make([]string, len(cfg.Symbols))
+	for i, spec := range cfg.Symbols {
+		symbols[i] = spec.Symbol
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultQuoteTimeout)
+	defer cancel()
+	prices, err := FetchQuotes(ctx, symbols)
+	if err != nil {
+		log.Errorf("longbridge price fetch failed: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	lastUpdated = time.Now()
+	for _, spec := range cfg.Symbols {
+		key := spec.CacheKey()
+		raw := ""
+		if prices != nil {
+			raw = prices[spec.Symbol]
+		}
+		if raw == "" {
+			if displayPrice[key] == "" {
+				displayPrice[key] = "--"
+			}
+			continue
+		}
+		displayPrice[key] = symbol.FormatPrice(raw)
+		log.Infof("%v: %v", key, displayPrice[key])
+	}
 }
 
 // FetchQuotes 按配置中的 symbol 原样向 LongBridge 询价，不做后缀改写。

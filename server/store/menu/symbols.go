@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"glance/store/binance"
 	"glance/store/cmb"
+	"glance/store/symbol"
 )
 
-func parseConfiguredSymbols(raw json.RawMessage) ([]binance.SymbolSpec, error) {
+func parseConfiguredSymbols(raw json.RawMessage) ([]symbol.Spec, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
@@ -19,7 +19,7 @@ func parseConfiguredSymbols(raw json.RawMessage) ([]binance.SymbolSpec, error) {
 		return nil, err
 	}
 
-	out := make([]binance.SymbolSpec, 0, len(entries))
+	out := make([]symbol.Spec, 0, len(entries))
 	for _, entry := range entries {
 		spec, err := parseSymbolEntry(entry)
 		if err != nil {
@@ -30,33 +30,54 @@ func parseConfiguredSymbols(raw json.RawMessage) ([]binance.SymbolSpec, error) {
 	return out, nil
 }
 
-func parseSymbolEntry(raw json.RawMessage) (binance.SymbolSpec, error) {
-	var symbol string
-	if err := json.Unmarshal(raw, &symbol); err == nil {
-		return binance.SymbolSpec{Symbol: symbol, Market: binance.MarketSpot}, nil
+func parseSymbolEntry(raw json.RawMessage) (symbol.Spec, error) {
+	var ticker string
+	if err := json.Unmarshal(raw, &ticker); err == nil {
+		return symbol.Spec{Symbol: ticker, Market: symbol.MarketSpot}, nil
 	}
 
 	var obj struct {
 		Symbol string `json:"symbol"`
 		Market string `json:"market"`
-		Source string `json:"source"`
 	}
 	if err := json.Unmarshal(raw, &obj); err != nil {
-		return binance.SymbolSpec{}, err
+		return symbol.Spec{}, err
 	}
-	return binance.SymbolSpec{Symbol: obj.Symbol, Market: obj.Market, Source: obj.Source}, nil
+	return symbol.Spec{Symbol: obj.Symbol, Market: obj.Market}, nil
 }
 
-func collectSymbolSpecs(cfg *Config) ([]binance.SymbolSpec, error) {
-	seen := make(map[string]struct{})
-	out := make([]binance.SymbolSpec, 0)
+func collectLongBridgeSymbolSpecs(cfg *Config) ([]symbol.Spec, error) {
+	if cfg.LongBridge == nil || len(cfg.LongBridge.Symbols) == 0 {
+		return nil, nil
+	}
+	specs, err := parseConfiguredSymbols(cfg.LongBridge.Symbols)
+	if err != nil {
+		return nil, fmt.Errorf("parse longbridge.symbols: %w", err)
+	}
+	return symbol.NormalizeSpecs(specs), nil
+}
 
-	add := func(spec binance.SymbolSpec) {
+func collectBinanceSymbolSpecs(cfg *Config) ([]symbol.Spec, error) {
+	reserved := make(map[string]struct{})
+	longbridgeSpecs, err := collectLongBridgeSymbolSpecs(cfg)
+	if err != nil {
+		return nil, err
+	}
+	for _, spec := range longbridgeSpecs {
+		reserved[spec.CacheKey()] = struct{}{}
+	}
+
+	seen := make(map[string]struct{})
+	out := make([]symbol.Spec, 0)
+	add := func(spec symbol.Spec) {
 		spec = spec.Normalize()
 		if spec.Symbol == "" {
 			return
 		}
 		key := spec.CacheKey()
+		if _, ok := reserved[key]; ok {
+			return
+		}
 		if _, ok := seen[key]; ok {
 			return
 		}
@@ -73,8 +94,8 @@ func collectSymbolSpecs(cfg *Config) ([]binance.SymbolSpec, error) {
 			add(spec)
 		}
 	}
-	for _, symbol := range cfg.Symbols {
-		add(binance.SymbolSpec{Symbol: symbol, Market: binance.MarketSpot})
+	for _, ticker := range cfg.Symbols {
+		add(symbol.Spec{Symbol: ticker, Market: symbol.MarketSpot})
 	}
 
 	var texts []string
@@ -83,14 +104,14 @@ func collectSymbolSpecs(cfg *Config) ([]binance.SymbolSpec, error) {
 	for _, text := range texts {
 		for _, match := range templatePlaceholder.FindAllStringSubmatch(text, -1) {
 			name := strings.ToLower(match[1])
-			if _, reserved := reservedPlaceholders[name]; reserved {
+			if _, reservedName := reservedPlaceholders[name]; reservedName {
 				continue
 			}
 			query := match[1]
 			if cmb.IsQuery(query) {
 				continue
 			}
-			spec := binance.ParsePriceQuery(query)
+			spec := symbol.ParsePriceQuery(query)
 			if !strings.Contains(query, ":") && symbolConfigured(out, spec.Symbol) {
 				continue
 			}
@@ -101,10 +122,10 @@ func collectSymbolSpecs(cfg *Config) ([]binance.SymbolSpec, error) {
 	return out, nil
 }
 
-func symbolConfigured(specs []binance.SymbolSpec, symbol string) bool {
-	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+func symbolConfigured(specs []symbol.Spec, ticker string) bool {
+	ticker = strings.ToUpper(strings.TrimSpace(ticker))
 	for _, spec := range specs {
-		if spec.Normalize().Symbol == symbol {
+		if spec.Normalize().Symbol == ticker {
 			return true
 		}
 	}

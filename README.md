@@ -65,7 +65,7 @@ Top-level fields:
 | `title` | Menu bar default title; supports `{{placeholders}}` |
 | `refresh_after_seconds` | Hint for the macOS client poll interval (client clamps to 3–300 s) |
 | `binance` | Binance REST settings and symbol list |
-| `longbridge` | Optional LongBridge quote credentials (stocks `source: "LongBridge"`) |
+| `longbridge` | Optional LongBridge quote settings and symbol list |
 | `cmb` | China Merchants Bank FX rate settings |
 | `menu` | Menu tree returned to the client |
 
@@ -73,7 +73,7 @@ Top-level fields:
 
 | Field | Description |
 |-------|-------------|
-| `symbols` | Trading pairs to fetch. String (`"BTCUSDT"`) or object (`{"symbol": "SOLUSDT", "market": "futures"}` / `{"symbol": "TSLA.US", "market": "stocks", "source": "LongBridge"}`) |
+| `symbols` | Trading pairs to fetch from Binance. String (`"BTCUSDT"`) or object (`{"symbol": "SOLUSDT", "market": "futures"}` / `{"symbol": "AAPL", "market": "stocks"}`) |
 | `api_key` / `api_secret` | Binance API credentials. **Required** for Binance `market: "stocks"` (equity MARKET_DATA needs `X-MBX-APIKEY`) |
 | `base_url` | Spot / Stocks API base (default `https://api.binance.com`) |
 | `futures_base_url` | Futures API base (default `https://fapi.binance.com`) |
@@ -83,9 +83,8 @@ Symbol object fields:
 
 | Field | Description |
 |-------|-------------|
-| `symbol` | Ticker as required by the chosen source, e.g. `BTCUSDT`, `AAPL`, `TSLA.US` |
+| `symbol` | Ticker as required by that block's data source, e.g. `BTCUSDT`, `AAPL`, `TSLA.US` |
 | `market` | `spot` (default), `futures`, or `stocks` (used for templates such as `{{stocks:AAPL}}`) |
-| `source` | Where to fetch this symbol: `Binance` (default) or `LongBridge`. Case-insensitive. The `symbol` is sent to that source as written |
 
 `market` values:
 
@@ -93,23 +92,29 @@ Symbol object fields:
 |--------|---------|-------|
 | `spot` (default) | `BTCUSDT` | Spot `/api/v3/ticker/price` |
 | `futures` | `{"symbol":"SOLUSDT","market":"futures"}` | Futures `/fapi/v1/ticker/price`; template `{{futures:SOLUSDT}}` |
-| `stocks` | `{"symbol":"AAPL","market":"stocks"}` | Default source Binance `/sapi/v1/equity/market/quote` (mid of bid/ask). Template `{{stocks:AAPL}}` |
+| `stocks` | `{"symbol":"AAPL","market":"stocks"}` | Binance `/sapi/v1/equity/market/quote` (mid of bid/ask). Template `{{stocks:AAPL}}` |
 
-`source` selects the fetch channel. If the source has no quote for that `symbol`, the price stays `--` — the server does not rewrite tickers or fall back to another source.
+Put a symbol under `binance.symbols` or `longbridge.symbols` to choose the data source. The server does not rewrite tickers or fall back to the other source.
 
-`longbridge` block (only needed when a symbol uses `"source": "LongBridge"`). Credentials can also come from environment variables; non-empty JSON fields override env:
+`longbridge` block (only needed when you want LongBridge quotes). Credentials can also come from environment variables; non-empty JSON fields override env:
 
 | Field | Description |
 |-------|-------------|
+| `symbols` | Tickers to fetch from LongBridge, same object shape as Binance (`{"symbol":"TSLA.US","market":"stocks"}`) |
 | `app_key` | LongBridge app key (env: `LONGBRIDGE_APP_KEY`) |
 | `app_secret` | LongBridge app secret (env: `LONGBRIDGE_APP_SECRET`) |
 | `access_token` | LongBridge access token (env: `LONGBRIDGE_ACCESS_TOKEN`) |
 | `region` | Optional. Set `cn` for mainland endpoints (env: `LONGBRIDGE_REGION`) |
+| `fetch_interval_seconds` | Server-side quote refresh interval (default 10) |
 
 Example (LongBridge expects market-suffixed tickers such as `TSLA.US` / `700.HK`):
 
 ```json
-{"symbol": "TSLA.US", "market": "stocks", "source": "LongBridge"}
+"longbridge": {
+  "symbols": [
+    {"symbol": "TSLA.US", "market": "stocks"}
+  ]
+}
 ```
 
 `make start` / `make dev` load `server/.env` when present.
@@ -122,7 +127,7 @@ Example (LongBridge expects market-suffixed tickers such as `TSLA.US` / `700.HK`
 | `url` | FX rate endpoint (default `https://fx.cmbchina.com/api/v1/fx/rate`) |
 | `fetch_interval_seconds` | Server-side FX refresh interval (default 60) |
 
-Symbols are also auto-collected from `{{SYMBOL}}` placeholders in `title` and `menu` when not listed under `binance.symbols`.
+Symbols are also auto-collected from `{{SYMBOL}}` placeholders in `title` and `menu` when not listed under `binance.symbols` or `longbridge.symbols`. Auto-collected tickers are fetched from Binance.
 
 ## Template placeholders
 
@@ -136,7 +141,7 @@ Use `{{name}}` in `title`, menu `title`, and menu `value` strings.
 | `{{btc_price}}` | BTC/USDT price (alias for `{{BTCUSDT}}`) |
 | `{{BTCUSDT}}` | Price for the given spot symbol |
 | `{{futures:SOLUSDT}}` | Futures price |
-| `{{stocks:AAPL}}` | US equity price (Binance mid quote, or LongBridge last price when `source` is LongBridge) |
+| `{{stocks:AAPL}}` | Equity price from the block that lists that ticker (Binance mid quote, or LongBridge last price) |
 | `{{fx:USD}}` | CMB USD spot ask (现汇卖出) |
 | `{{fx:USD_bid}}` / `{{fx:USD_ask}}` | CMB spot bid / ask |
 | `{{fx:USD_mid}}` | CMB reference mid (`rtbBid`) |
@@ -172,6 +177,8 @@ ETHUSDT: 3456.12
 SOLUSDT: 178.20
 AAPL: 180.51
 TSLA: 250.10
+GOOG.US: 175.20
+00700.HK: 380.50
 USD: 677.83/673.54
 ```
 

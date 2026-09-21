@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"glance/store/binance"
+	"glance/store/longbridge"
+	"glance/store/symbol"
 )
 
 func TestLoadResponse_rendersTemplates(t *testing.T) {
@@ -141,18 +143,66 @@ func TestLoadBinanceConfig_stocksSymbol(t *testing.T) {
 	if len(cfg.Symbols) != 1 || cfg.Symbols[0].Market != binance.MarketStocks || cfg.Symbols[0].Symbol != "AAPL" {
 		t.Fatalf("unexpected stocks symbol config: %#v", cfg.Symbols)
 	}
-	if cfg.Symbols[0].Source != binance.SourceBinance {
-		t.Fatalf("expected default binance source, got %#v", cfg.Symbols[0])
-	}
 }
 
-func TestLoadBinanceConfig_longbridgeSource(t *testing.T) {
+func TestLoadLongBridgeConfig_symbols(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "menu.json")
 	data := `{
   "binance": {
     "symbols": [
-      {"symbol": "TSLA", "market": "stocks", "source": "LongBridge"}
+      {"symbol": "AAPL", "market": "stocks"}
+    ]
+  },
+  "longbridge": {
+    "symbols": [
+      {"symbol": "GOOG.US", "market": "stocks"},
+      {"symbol": "00700.HK", "market": "stocks"}
+    ],
+    "app_key": "key-1",
+    "app_secret": "secret-1",
+    "access_token": "token-1",
+    "region": "cn",
+    "fetch_interval_seconds": 3
+  },
+  "menu": [
+    {"title": "AAPL {{stocks:AAPL}}", "action": "select", "value": "stocks:AAPL"},
+    {"title": "GOOG {{stocks:GOOG.US}}", "action": "select", "value": "stocks:GOOG.US"}
+  ]
+}`
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	configPath = path
+	binanceCfg, err := LoadBinanceConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(binanceCfg.Symbols) != 1 || binanceCfg.Symbols[0].Symbol != "AAPL" {
+		t.Fatalf("binance should only keep its own stocks, got %#v", binanceCfg.Symbols)
+	}
+
+	cfg, err := LoadLongBridgeConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AppKey != "key-1" || cfg.FetchInterval != 3*time.Second {
+		t.Fatalf("unexpected longbridge config: %+v", cfg)
+	}
+	if len(cfg.Symbols) != 2 || cfg.Symbols[0].Symbol != "GOOG.US" || cfg.Symbols[1].Symbol != "00700.HK" {
+		t.Fatalf("unexpected longbridge symbols: %#v", cfg.Symbols)
+	}
+}
+
+func TestLoadBinanceConfig_skipsLongBridgeSymbols(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "menu.json")
+	data := `{
+  "title": "{{stocks:GOOG.US}}",
+  "longbridge": {
+    "symbols": [
+      {"symbol": "GOOG.US", "market": "stocks"}
     ]
   },
   "menu": []
@@ -166,11 +216,10 @@ func TestLoadBinanceConfig_longbridgeSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Symbols) != 1 || cfg.Symbols[0].Symbol != "TSLA" || cfg.Symbols[0].Market != binance.MarketStocks {
-		t.Fatalf("unexpected longbridge symbol config: %#v", cfg.Symbols)
-	}
-	if cfg.Symbols[0].Source != binance.SourceLongBridge {
-		t.Fatalf("expected longbridge source, got %#v", cfg.Symbols[0])
+	for _, spec := range cfg.Symbols {
+		if spec.Symbol == "GOOG.US" {
+			t.Fatalf("longbridge ticker leaked into binance: %#v", cfg.Symbols)
+		}
 	}
 }
 
@@ -327,8 +376,13 @@ func TestFormatPricesText(t *testing.T) {
 			{Symbol: "AAPL", Market: binance.MarketStocks},
 		},
 	})
+	longbridge.Configure(longbridge.Config{
+		Symbols: []symbol.Spec{
+			{Symbol: "GOOG.US", Market: symbol.MarketStocks},
+		},
+	})
 	text := FormatPricesText()
-	if !strings.Contains(text, "BTCUSDT: ") || !strings.Contains(text, "AAPL: ") {
+	if !strings.Contains(text, "BTCUSDT: ") || !strings.Contains(text, "AAPL: ") || !strings.Contains(text, "GOOG.US: ") {
 		t.Fatalf("unexpected prices text: %q", text)
 	}
 }

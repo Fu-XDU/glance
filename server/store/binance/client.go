@@ -1,7 +1,6 @@
 package binance
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"glance/store/longbridge"
+	"glance/store/symbol"
 
 	"github.com/labstack/gommon/log"
 )
@@ -41,8 +40,6 @@ var (
 	lastUpdated  time.Time
 
 	httpClient = &http.Client{Timeout: 5 * time.Second}
-
-	fetchLongBridgeQuotes = longbridge.FetchQuotes
 )
 
 // Configure 设置 Binance 客户端（进程启动时调用一次）。
@@ -67,26 +64,22 @@ func Configure(c Config) {
 	displayPrice = make(map[string]string, len(cfg.Symbols))
 	mu.Unlock()
 
-	hasBinanceStocks := false
-	hasLongBridgeStocks := false
+	hasStocks := false
 	for _, spec := range cfg.Symbols {
 		spec = spec.Normalize()
-		if spec.UsesLongBridge() {
-			hasLongBridgeStocks = true
-			log.Infof("longbridge symbol configured: %s (%s)", spec.Symbol, spec.Market)
-			continue
-		}
 		if spec.Market == MarketStocks {
-			hasBinanceStocks = true
+			hasStocks = true
 		}
 		log.Infof("binance symbol configured: %s (%s)", spec.Symbol, spec.Market)
 	}
-	if hasBinanceStocks && cfg.APIKey == "" {
+	if hasStocks && cfg.APIKey == "" {
 		log.Warn("binance stocks market requires api_key (X-MBX-APIKEY) for /sapi/v1/equity/market/quote")
 	}
-	if hasLongBridgeStocks {
-		log.Info("longbridge stock quotes enabled (credentials from env or longbridge config)")
-	}
+}
+
+// Owns 当前 Binance 配置是否包含该 query 对应的标的。
+func Owns(query string) bool {
+	return symbol.Owns(query, cfg.Symbols)
 }
 
 // SymbolSpecs 返回当前配置的交易对列表。
@@ -166,7 +159,7 @@ func refreshPrices() {
 			}
 			continue
 		}
-		displayPrice[key] = formatPrice(raw)
+		displayPrice[key] = symbol.FormatPrice(raw)
 		log.Infof("%v: %v", key, displayPrice[key])
 	}
 }
@@ -183,17 +176,12 @@ func fetchAllPrices(specs []SymbolSpec) map[string]string {
 	)
 
 	byMarket := map[string][]SymbolSpec{
-		MarketSpot:       {},
-		MarketFutures:    {},
-		MarketStocks:     {},
-		SourceLongBridge: {},
+		MarketSpot:    {},
+		MarketFutures: {},
+		MarketStocks:  {},
 	}
 	for _, spec := range specs {
 		spec = spec.Normalize()
-		if spec.UsesLongBridge() {
-			byMarket[SourceLongBridge] = append(byMarket[SourceLongBridge], spec)
-			continue
-		}
 		byMarket[spec.Market] = append(byMarket[spec.Market], spec)
 	}
 
@@ -220,10 +208,6 @@ func fetchAllPrices(specs []SymbolSpec) map[string]string {
 }
 
 func fetchMarketPrices(market string, marketSpecs []SymbolSpec) map[string]string {
-	if market == SourceLongBridge {
-		return fetchLongBridgePrices(marketSpecs)
-	}
-
 	out := make(map[string]string, len(marketSpecs))
 	symbols := make([]string, len(marketSpecs))
 	for i, spec := range marketSpecs {
@@ -264,31 +248,6 @@ func fetchMarketPrices(market string, marketSpecs []SymbolSpec) map[string]strin
 		}(spec)
 	}
 	wg.Wait()
-	return out
-}
-
-func fetchLongBridgePrices(specs []SymbolSpec) map[string]string {
-	out := make(map[string]string, len(specs))
-	if len(specs) == 0 {
-		return out
-	}
-	symbols := make([]string, len(specs))
-	for i, spec := range specs {
-		symbols[i] = spec.Symbol
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-	defer cancel()
-	prices, err := fetchLongBridgeQuotes(ctx, symbols)
-	if err != nil {
-		log.Errorf("longbridge price fetch failed: %v", err)
-		return out
-	}
-	for _, spec := range specs {
-		if price := prices[spec.Symbol]; price != "" {
-			out[spec.CacheKey()] = price
-		}
-	}
 	return out
 }
 
@@ -440,17 +399,4 @@ func parsePriceResponse(body []byte, single bool) (map[string]string, error) {
 		return nil, fmt.Errorf("empty binance response: %s", string(body))
 	}
 	return out, nil
-}
-
-func formatPrice(raw string) string {
-	value, err := strconv.ParseFloat(raw, 64)
-	if err != nil {
-		return raw
-	}
-	switch {
-	case value >= 1:
-		return fmt.Sprintf("%.2f", value)
-	default:
-		return fmt.Sprintf("%.4f", value)
-	}
 }

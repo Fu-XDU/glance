@@ -6,6 +6,7 @@ import (
 
 	"glance/store/binance"
 	"glance/store/cmb"
+	"glance/store/longbridge"
 )
 
 // FormatPricesText 返回人类可读的纯文本行情快照。
@@ -14,6 +15,10 @@ func FormatPricesText() string {
 	for _, spec := range binance.SymbolSpecs() {
 		spec = spec.Normalize()
 		fmt.Fprintf(&b, "%s: %s\n", spec.DisplayLabel(), binance.Price(spec.TemplateKey()))
+	}
+	for _, spec := range longbridge.SymbolSpecs() {
+		spec = spec.Normalize()
+		fmt.Fprintf(&b, "%s: %s\n", spec.DisplayLabel(), longbridge.Price(spec.TemplateKey()))
 	}
 	for _, line := range cmb.FormatRateLines() {
 		b.WriteString(line)

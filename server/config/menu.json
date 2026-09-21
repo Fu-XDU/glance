@@ -6,10 +6,8 @@
       "BTCUSDT",
       {"symbol": "ETHUSDT", "market": "spot"},
       {"symbol": "SOLUSDT", "market": "futures"},
-      {"symbol": "AAPL", "market": "stocks", "source": "Binance"},
-      {"symbol": "TSLA", "market": "stocks", "source": "Binance"},
-      {"symbol": "GOOG.US", "market": "stocks", "source": "LongBridge"},
-      {"symbol": "00700.HK", "market": "stocks", "source": "LongBridge"}
+      {"symbol": "AAPL", "market": "stocks"},
+      {"symbol": "TSLA", "market": "stocks"}
     ],
     "api_key": "",
     "api_secret": "",
@@ -18,10 +16,15 @@
     "fetch_interval_seconds": 3
   },
   "longbridge": {
+    "symbols": [
+      {"symbol": "GOOG.US", "market": "stocks"},
+      {"symbol": "00700.HK", "market": "stocks"}
+    ],
     "app_key": "",
     "app_secret": "",
     "access_token": "",
-    "region": "cn"
+    "region": "cn",
+    "fetch_interval_seconds": 3
   },
   "cmb": {
     "enabled": true,
