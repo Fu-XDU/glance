@@ -1,6 +1,7 @@
 package binance
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"glance/store/longbridge"
 
 	"github.com/labstack/gommon/log"
 )
@@ -38,6 +41,8 @@ var (
 	lastUpdated  time.Time
 
 	httpClient = &http.Client{Timeout: 5 * time.Second}
+
+	fetchLongBridgeQuotes = longbridge.FetchQuotes
 )
 
 // Configure 设置 Binance 客户端（进程启动时调用一次）。
@@ -62,16 +67,25 @@ func Configure(c Config) {
 	displayPrice = make(map[string]string, len(cfg.Symbols))
 	mu.Unlock()
 
-	hasStocks := false
+	hasBinanceStocks := false
+	hasLongBridgeStocks := false
 	for _, spec := range cfg.Symbols {
 		spec = spec.Normalize()
+		if spec.UsesLongBridge() {
+			hasLongBridgeStocks = true
+			log.Infof("longbridge symbol configured: %s (%s)", spec.Symbol, spec.Market)
+			continue
+		}
 		if spec.Market == MarketStocks {
-			hasStocks = true
+			hasBinanceStocks = true
 		}
 		log.Infof("binance symbol configured: %s (%s)", spec.Symbol, spec.Market)
 	}
-	if hasStocks && cfg.APIKey == "" {
+	if hasBinanceStocks && cfg.APIKey == "" {
 		log.Warn("binance stocks market requires api_key (X-MBX-APIKEY) for /sapi/v1/equity/market/quote")
+	}
+	if hasLongBridgeStocks {
+		log.Info("longbridge stock quotes enabled (credentials from env or longbridge config)")
 	}
 }
 
@@ -169,12 +183,17 @@ func fetchAllPrices(specs []SymbolSpec) map[string]string {
 	)
 
 	byMarket := map[string][]SymbolSpec{
-		MarketSpot:    {},
-		MarketFutures: {},
-		MarketStocks:  {},
+		MarketSpot:       {},
+		MarketFutures:    {},
+		MarketStocks:     {},
+		SourceLongBridge: {},
 	}
 	for _, spec := range specs {
 		spec = spec.Normalize()
+		if spec.UsesLongBridge() {
+			byMarket[SourceLongBridge] = append(byMarket[SourceLongBridge], spec)
+			continue
+		}
 		byMarket[spec.Market] = append(byMarket[spec.Market], spec)
 	}
 
@@ -201,6 +220,10 @@ func fetchAllPrices(specs []SymbolSpec) map[string]string {
 }
 
 func fetchMarketPrices(market string, marketSpecs []SymbolSpec) map[string]string {
+	if market == SourceLongBridge {
+		return fetchLongBridgePrices(marketSpecs)
+	}
+
 	out := make(map[string]string, len(marketSpecs))
 	symbols := make([]string, len(marketSpecs))
 	for i, spec := range marketSpecs {
@@ -241,6 +264,31 @@ func fetchMarketPrices(market string, marketSpecs []SymbolSpec) map[string]strin
 		}(spec)
 	}
 	wg.Wait()
+	return out
+}
+
+func fetchLongBridgePrices(specs []SymbolSpec) map[string]string {
+	out := make(map[string]string, len(specs))
+	if len(specs) == 0 {
+		return out
+	}
+	symbols := make([]string, len(specs))
+	for i, spec := range specs {
+		symbols[i] = spec.Symbol
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	prices, err := fetchLongBridgeQuotes(ctx, symbols)
+	if err != nil {
+		log.Errorf("longbridge price fetch failed: %v", err)
+		return out
+	}
+	for _, spec := range specs {
+		if price := prices[spec.Symbol]; price != "" {
+			out[spec.CacheKey()] = price
+		}
+	}
 	return out
 }
 

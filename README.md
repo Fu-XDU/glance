@@ -11,7 +11,7 @@ Glance
 <p align="center">
 <a href="#license"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License"></a>
 </p>
-Glance is a lightweight macOS menu bar client backed by a small Go API server. The server reads `menu.json`, fetches Binance prices in the background, renders template placeholders, and exposes a single HTTP endpoint. The macOS app polls that endpoint and builds its status bar title and menu dynamically—no hard-coded menu structure in the client.
+Glance is a lightweight macOS menu bar client backed by a small Go API server. The server reads `menu.json`, fetches Binance (and optional LongBridge stock) prices in the background, renders template placeholders, and exposes a single HTTP endpoint. The macOS app polls that endpoint and builds its status bar title and menu dynamically—no hard-coded menu structure in the client.
 
 ## Screenshot
 
@@ -65,6 +65,7 @@ Top-level fields:
 | `title` | Menu bar default title; supports `{{placeholders}}` |
 | `refresh_after_seconds` | Hint for the macOS client poll interval (client clamps to 3–300 s) |
 | `binance` | Binance REST settings and symbol list |
+| `longbridge` | Optional LongBridge quote credentials (stocks `source: "LongBridge"`) |
 | `cmb` | China Merchants Bank FX rate settings |
 | `menu` | Menu tree returned to the client |
 
@@ -72,11 +73,19 @@ Top-level fields:
 
 | Field | Description |
 |-------|-------------|
-| `symbols` | Trading pairs to fetch. String (`"BTCUSDT"`) or object (`{"symbol": "SOLUSDT", "market": "futures"}` / `{"symbol": "AAPL", "market": "stocks"}`) |
-| `api_key` / `api_secret` | Binance API credentials. **Required** for `market: "stocks"` (equity MARKET_DATA needs `X-MBX-APIKEY`) |
+| `symbols` | Trading pairs to fetch. String (`"BTCUSDT"`) or object (`{"symbol": "SOLUSDT", "market": "futures"}` / `{"symbol": "TSLA.US", "market": "stocks", "source": "LongBridge"}`) |
+| `api_key` / `api_secret` | Binance API credentials. **Required** for Binance `market: "stocks"` (equity MARKET_DATA needs `X-MBX-APIKEY`) |
 | `base_url` | Spot / Stocks API base (default `https://api.binance.com`) |
 | `futures_base_url` | Futures API base (default `https://fapi.binance.com`) |
 | `fetch_interval_seconds` | Server-side price refresh interval (default 10) |
+
+Symbol object fields:
+
+| Field | Description |
+|-------|-------------|
+| `symbol` | Ticker as required by the chosen source, e.g. `BTCUSDT`, `AAPL`, `TSLA.US` |
+| `market` | `spot` (default), `futures`, or `stocks` (used for templates such as `{{stocks:AAPL}}`) |
+| `source` | Where to fetch this symbol: `Binance` (default) or `LongBridge`. Case-insensitive. The `symbol` is sent to that source as written |
 
 `market` values:
 
@@ -84,7 +93,26 @@ Top-level fields:
 |--------|---------|-------|
 | `spot` (default) | `BTCUSDT` | Spot `/api/v3/ticker/price` |
 | `futures` | `{"symbol":"SOLUSDT","market":"futures"}` | Futures `/fapi/v1/ticker/price`; template `{{futures:SOLUSDT}}` |
-| `stocks` | `{"symbol":"AAPL","market":"stocks"}` | Stocks `/sapi/v1/equity/market/quote`; mid of bid/ask; template `{{stocks:AAPL}}` |
+| `stocks` | `{"symbol":"AAPL","market":"stocks"}` | Default source Binance `/sapi/v1/equity/market/quote` (mid of bid/ask). Template `{{stocks:AAPL}}` |
+
+`source` selects the fetch channel. If the source has no quote for that `symbol`, the price stays `--` — the server does not rewrite tickers or fall back to another source.
+
+`longbridge` block (only needed when a symbol uses `"source": "LongBridge"`). Credentials can also come from environment variables; non-empty JSON fields override env:
+
+| Field | Description |
+|-------|-------------|
+| `app_key` | LongBridge app key (env: `LONGBRIDGE_APP_KEY`) |
+| `app_secret` | LongBridge app secret (env: `LONGBRIDGE_APP_SECRET`) |
+| `access_token` | LongBridge access token (env: `LONGBRIDGE_ACCESS_TOKEN`) |
+| `region` | Optional. Set `cn` for mainland endpoints (env: `LONGBRIDGE_REGION`) |
+
+Example (LongBridge expects market-suffixed tickers such as `TSLA.US` / `700.HK`):
+
+```json
+{"symbol": "TSLA.US", "market": "stocks", "source": "LongBridge"}
+```
+
+`make start` / `make dev` load `server/.env` when present.
 
 `cmb` block (招商银行外汇，接口 [fx.cmbchina.com/api/v1/fx/rate](https://fx.cmbchina.com/api/v1/fx/rate)):
 
@@ -108,7 +136,7 @@ Use `{{name}}` in `title`, menu `title`, and menu `value` strings.
 | `{{btc_price}}` | BTC/USDT price (alias for `{{BTCUSDT}}`) |
 | `{{BTCUSDT}}` | Price for the given spot symbol |
 | `{{futures:SOLUSDT}}` | Futures price |
-| `{{stocks:AAPL}}` | US equity mid quote (bid/ask average) |
+| `{{stocks:AAPL}}` | US equity price (Binance mid quote, or LongBridge last price when `source` is LongBridge) |
 | `{{fx:USD}}` | CMB USD spot ask (现汇卖出) |
 | `{{fx:USD_bid}}` / `{{fx:USD_ask}}` | CMB spot bid / ask |
 | `{{fx:USD_mid}}` | CMB reference mid (`rtbBid`) |
