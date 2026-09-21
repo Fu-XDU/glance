@@ -71,6 +71,7 @@ func prepare(ctx *cli.Context) (err error) {
 	}
 
 	longbridge.Configure(longbridgeCfg)
+	longbridge.Start()
 	binance.Configure(binanceCfg)
 	binance.Start()
 	cmb.Configure(cmbCfg)

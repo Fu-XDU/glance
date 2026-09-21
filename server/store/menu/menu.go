@@ -53,13 +53,15 @@ type CmbSettings struct {
 	FetchIntervalSeconds *int   `json:"fetch_interval_seconds,omitempty"`
 }
 
-// LongBridgeSettings 长桥行情凭证，写在 menu.json 的 longbridge 字段中。
-// 空字段回退到环境变量 LONGBRIDGE_APP_KEY / LONGBRIDGE_APP_SECRET / LONGBRIDGE_ACCESS_TOKEN / LONGBRIDGE_REGION。
+// LongBridgeSettings 长桥行情配置，写在 menu.json 的 longbridge 字段中。
+// 凭证空字段回退到环境变量 LONGBRIDGE_APP_KEY / LONGBRIDGE_APP_SECRET / LONGBRIDGE_ACCESS_TOKEN / LONGBRIDGE_REGION。
 type LongBridgeSettings struct {
-	AppKey      string `json:"app_key,omitempty"`
-	AppSecret   string `json:"app_secret,omitempty"`
-	AccessToken string `json:"access_token,omitempty"`
-	Region      string `json:"region,omitempty"`
+	Symbols              json.RawMessage `json:"symbols,omitempty"`
+	AppKey               string          `json:"app_key,omitempty"`
+	AppSecret            string          `json:"app_secret,omitempty"`
+	AccessToken          string          `json:"access_token,omitempty"`
+	Region               string          `json:"region,omitempty"`
+	FetchIntervalSeconds *int            `json:"fetch_interval_seconds,omitempty"`
 }
 
 // Config 菜单配置文件结构。
@@ -111,7 +113,7 @@ func LoadBinanceConfig() (binance.Config, error) {
 		}
 	}
 
-	out.Symbols, err = collectSymbolSpecs(cfg)
+	out.Symbols, err = collectBinanceSymbolSpecs(cfg)
 	if err != nil {
 		return binance.Config{}, err
 	}
@@ -158,6 +160,13 @@ func LoadLongBridgeConfig() (longbridge.Config, error) {
 	out.AppSecret = cfg.LongBridge.AppSecret
 	out.AccessToken = cfg.LongBridge.AccessToken
 	out.Region = cfg.LongBridge.Region
+	if cfg.LongBridge.FetchIntervalSeconds != nil {
+		out.FetchInterval = time.Duration(*cfg.LongBridge.FetchIntervalSeconds) * time.Second
+	}
+	out.Symbols, err = collectLongBridgeSymbolSpecs(cfg)
+	if err != nil {
+		return longbridge.Config{}, err
+	}
 	return out, nil
 }
 
@@ -206,6 +215,8 @@ func (c *templateContext) getPrice(query string) string {
 	var price string
 	if cmb.IsQuery(query) {
 		price = cmb.Rate(query)
+	} else if longbridge.Owns(query) {
+		price = longbridge.Price(query)
 	} else {
 		price = binance.Price(query)
 	}
@@ -257,7 +268,7 @@ func renderTemplate(text string, ctx *templateContext) string {
 		"{{date}}":     now.Format("2006-01-02"),
 		"{{datetime}}": now.Format("2006-01-02 15:04"),
 	}
-	for _, key := range binance.Symbols() {
+	for _, key := range append(binance.Symbols(), longbridge.Symbols()...) {
 		placeholder := "{{" + key + "}}"
 		if strings.Contains(text, placeholder) {
 			replacements[placeholder] = ctx.getPrice(key)

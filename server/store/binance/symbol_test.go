@@ -19,36 +19,6 @@ func TestParsePriceQuery(t *testing.T) {
 	}
 }
 
-func TestNormalizeSource(t *testing.T) {
-	cases := []struct {
-		in   string
-		want string
-	}{
-		{"", SourceBinance},
-		{"Binance", SourceBinance},
-		{"binance", SourceBinance},
-		{"LongBridge", SourceLongBridge},
-		{"longbridge", SourceLongBridge},
-		{"LONGBRIDGE", SourceLongBridge},
-	}
-	for _, tc := range cases {
-		spec := (SymbolSpec{Symbol: "TSLA", Market: MarketStocks, Source: tc.in}).Normalize()
-		if spec.Source != tc.want {
-			t.Fatalf("source %q: got %q, want %q", tc.in, spec.Source, tc.want)
-		}
-	}
-
-	if !(SymbolSpec{Symbol: "TSLA.US", Market: MarketStocks, Source: "LongBridge"}).UsesLongBridge() {
-		t.Fatal("expected LongBridge source to use LongBridge")
-	}
-	if (SymbolSpec{Symbol: "TSLA.US", Market: MarketStocks}).UsesLongBridge() {
-		t.Fatal("default source should be Binance")
-	}
-	if !(SymbolSpec{Symbol: "700.HK", Market: MarketSpot, Source: "LongBridge"}).UsesLongBridge() {
-		t.Fatal("LongBridge source should be used regardless of market")
-	}
-}
-
 func TestResolveSpec_prefersConfiguredMarket(t *testing.T) {
 	configured := []SymbolSpec{{Symbol: "FOOUSDT", Market: MarketFutures}}
 	spec := ResolveSpec("FOOUSDT", configured)

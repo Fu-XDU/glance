@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"glance/store/symbol"
+
 	"github.com/longbridge/openapi-go/quote"
 	"github.com/shopspring/decimal"
 )
@@ -121,5 +123,41 @@ func TestFetchQuotes_usesConfiguredSymbol(t *testing.T) {
 	}
 	if _, ok := got["TSLA"]; ok {
 		t.Fatalf("unmatched symbol should stay absent: %#v", got)
+	}
+}
+
+func TestRefreshPrices_stocks(t *testing.T) {
+	price := decimal.RequireFromString("175.20")
+	fake := &fakeQuoteClient{
+		quotes: []*quote.SecurityQuote{
+			{Symbol: "GOOG.US", LastDone: &price, Timestamp: 1},
+		},
+	}
+	orig := newQuoteClient
+	t.Cleanup(func() {
+		newQuoteClient = orig
+		Configure(Config{})
+	})
+	Configure(Config{
+		Symbols: []symbol.Spec{{Symbol: "GOOG.US", Market: symbol.MarketStocks}},
+	})
+	newQuoteClient = func(Config) (quoteClient, error) { return fake, nil }
+
+	refreshPrices()
+
+	if len(fake.symbols) != 1 || fake.symbols[0] != "GOOG.US" {
+		t.Fatalf("expected GOOG.US as-is, got %v", fake.symbols)
+	}
+	if got := Price("stocks:GOOG.US"); got != "175.20" {
+		t.Fatalf("unexpected longbridge price: %s", got)
+	}
+	if got := Price("GOOG.US"); got != "175.20" {
+		t.Fatalf("expected configured stocks market for bare ticker, got %s", got)
+	}
+	if !Owns("stocks:GOOG.US") {
+		t.Fatal("expected to own configured ticker")
+	}
+	if Owns("stocks:AAPL") {
+		t.Fatal("must not own a binance ticker")
 	}
 }

@@ -1,7 +1,6 @@
 package binance
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -188,70 +187,5 @@ func TestPrice_beforeFetch(t *testing.T) {
 	Configure(Config{Symbols: []SymbolSpec{{Symbol: "BTCUSDT", Market: MarketSpot}}})
 	if got := Price("BTCUSDT"); got != "--" {
 		t.Fatalf("expected placeholder before fetch, got %q", got)
-	}
-}
-
-func TestRefreshPrices_longbridgeStocks(t *testing.T) {
-	orig := fetchLongBridgeQuotes
-	t.Cleanup(func() { fetchLongBridgeQuotes = orig })
-	fetchLongBridgeQuotes = func(_ context.Context, symbols []string) (map[string]string, error) {
-		if len(symbols) != 1 || symbols[0] != "TSLA" {
-			t.Fatalf("unexpected longbridge symbols: %v", symbols)
-		}
-		return map[string]string{"TSLA": "250.10"}, nil
-	}
-
-	resetState()
-	Configure(Config{
-		Symbols: []SymbolSpec{{Symbol: "TSLA", Market: MarketStocks, Source: SourceLongBridge}},
-	})
-	refreshPrices()
-
-	if got := Price("stocks:TSLA"); got != "250.10" {
-		t.Fatalf("unexpected longbridge price: %s", got)
-	}
-	if got := Price("TSLA"); got != "250.10" {
-		t.Fatalf("expected configured stocks market for bare ticker, got %s", got)
-	}
-}
-
-func TestRefreshPrices_mixedStockSources(t *testing.T) {
-	orig := fetchLongBridgeQuotes
-	t.Cleanup(func() { fetchLongBridgeQuotes = orig })
-	fetchLongBridgeQuotes = func(_ context.Context, symbols []string) (map[string]string, error) {
-		if len(symbols) != 1 || symbols[0] != "TSLA" {
-			t.Fatalf("longbridge should only receive TSLA, got %v", symbols)
-		}
-		return map[string]string{"TSLA": "250.10"}, nil
-	}
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/sapi/v1/equity/market/quote" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
-		if r.URL.Query().Get("symbol") != "AAPL" {
-			t.Fatalf("binance should only receive AAPL, got %s", r.URL.Query().Get("symbol"))
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"symbol":"AAPL","bidPrice":"180.50","askPrice":"180.52","bidSize":100,"askSize":200}`))
-	}))
-	defer server.Close()
-
-	resetState()
-	Configure(Config{
-		BaseURL: server.URL,
-		APIKey:  "test-key",
-		Symbols: []SymbolSpec{
-			{Symbol: "AAPL", Market: MarketStocks},
-			{Symbol: "TSLA", Market: MarketStocks, Source: SourceLongBridge},
-		},
-	})
-	refreshPrices()
-
-	if got := Price("stocks:AAPL"); got != "180.51" {
-		t.Fatalf("unexpected binance stocks price: %s", got)
-	}
-	if got := Price("stocks:TSLA"); got != "250.10" {
-		t.Fatalf("unexpected longbridge stocks price: %s", got)
 	}
 }
