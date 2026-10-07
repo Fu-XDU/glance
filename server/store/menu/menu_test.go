@@ -369,6 +369,31 @@ func TestLoadCmbConfig(t *testing.T) {
 	}
 }
 
+func TestLoadResponse_preservesKeyEquivalent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "menu.json")
+	data := `{
+  "menu": [
+    {"title": "偏好设置…", "action": "preferences", "key_equivalent": ","}
+  ]
+}`
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	configPath = path
+	resp, err := LoadResponse()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Menu) != 1 || resp.Menu[0].KeyEquivalent == nil || *resp.Menu[0].KeyEquivalent != "," {
+		t.Fatalf("key equivalent not preserved: %+v", resp.Menu)
+	}
+	if resp.Menu[0].Action == nil || *resp.Menu[0].Action != "preferences" {
+		t.Fatalf("preferences action not preserved: %+v", resp.Menu)
+	}
+}
+
 func TestFormatPricesText(t *testing.T) {
 	binance.Configure(binance.Config{
 		Symbols: []binance.SymbolSpec{

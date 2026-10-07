@@ -1,7 +1,13 @@
 import AppKit
 import Foundation
 
+extension Notification.Name {
+    static let glanceMenuDidUpdate = Notification.Name("glance.menuDidUpdate")
+}
+
 final class MenuController: NSObject, NSMenuDelegate {
+    static private(set) var latestItems: [MenuItem] = []
+
     private var statusItem: NSStatusItem!
     private var lastUpdated: Date?
     private var currentMenuItems: [MenuItem] = []
@@ -11,6 +17,8 @@ final class MenuController: NSObject, NSMenuDelegate {
     private let minInterval: TimeInterval = 3
     private let maxInterval: TimeInterval = 300
     private var isMenuOpen = false
+    private var keyMonitor: Any?
+    private lazy var preferencesWindowController = PreferencesWindowController()
 
     private let apiURL = URL(string: "http://127.0.0.1:1423/api/menu")!
     private let selectedSymbolKey = "glance.selectedSymbol"
@@ -31,7 +39,26 @@ final class MenuController: NSObject, NSMenuDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.title = "Glance"
         statusItem.menu = buildMenu(items: [])
+        installPreferencesShortcut()
         fetchMenu()
+    }
+
+    deinit {
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+        }
+    }
+
+    /// 状态栏菜单打开时快捷键由菜单项处理；其余时间 Glance 在前台则由这里响应 ⌘,。
+    private func installPreferencesShortcut() {
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, !event.isARepeat else { return event }
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard flags == .command, event.charactersIgnoringModifiers == "," else { return event }
+            if self.isMenuOpen { return event }
+            self.showPreferences(nil)
+            return nil
+        }
     }
 
     // MARK: - Networking
@@ -45,8 +72,10 @@ final class MenuController: NSObject, NSMenuDelegate {
                 guard let self else { return }
                 if let data, error == nil, let response = try? JSONDecoder().decode(MenuResponse.self, from: data) {
                     self.lastUpdated = Date()
-                    self.currentMenuItems = response.menu
-                    self.applyMenuData(items: response.menu, defaultTitle: response.title)
+                    MenuController.latestItems = response.menu
+                    self.currentMenuItems = self.injectPreferences(into: response.menu)
+                    self.applyMenuData(items: self.currentMenuItems, defaultTitle: response.title)
+                    NotificationCenter.default.post(name: .glanceMenuDidUpdate, object: nil)
                     let requested = TimeInterval(response.refreshAfterSeconds ?? Int(self.minInterval))
                     self.nextInterval = max(self.minInterval, min(requested, self.maxInterval))
                 } else {
@@ -94,10 +123,13 @@ final class MenuController: NSObject, NSMenuDelegate {
             menu.addItem(makeNSMenuItem(from: item))
         }
         if items.isEmpty {
+            menu.addItem(makePreferencesItem())
             menu.addItem(makeQuitItem())
         }
         menu.addItem(NSMenuItem.separator())
         menu.addItem(makeLastUpdatedItem())
+        menu.autoenablesItems = false
+        ensurePreferencesShown(in: menu)
         return menu
     }
 
@@ -105,6 +137,55 @@ final class MenuController: NSObject, NSMenuDelegate {
         let item = NSMenuItem(title: "退出 Glance", action: #selector(quitApp), keyEquivalent: "")
         item.target = self
         return item
+    }
+
+    private func makePreferencesItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "偏好设置…", action: #selector(showPreferences(_:)), keyEquivalent: ",")
+        item.keyEquivalentModifierMask = .command
+        item.target = self
+        return item
+    }
+
+    private func preferencesMenuModel() -> MenuItem {
+        MenuItem(title: "偏好设置…", action: "preferences", keyEquivalent: ",")
+    }
+
+    /// 偏好设置与「快捷操作」平级，紧挨在它下面。服务端若把它放进子菜单，这里会挪出来。
+    private func injectPreferences(into items: [MenuItem]) -> [MenuItem] {
+        let stripped = items.compactMap { item -> MenuItem? in
+            if item.action == "preferences" || item.title.hasPrefix("偏好设置") {
+                return nil
+            }
+            return removingPreferences(from: item)
+        }
+        guard let quickIndex = stripped.firstIndex(where: { $0.title == "快捷操作" }) else {
+            if let quitIndex = stripped.firstIndex(where: { $0.action == "quit" }) {
+                var result = stripped
+                result.insert(preferencesMenuModel(), at: quitIndex)
+                return result
+            }
+            return stripped + [preferencesMenuModel()]
+        }
+        var result = stripped
+        result.insert(preferencesMenuModel(), at: quickIndex + 1)
+        return result
+    }
+
+    private func removingPreferences(from item: MenuItem) -> MenuItem {
+        let children = item.children?.compactMap { child -> MenuItem? in
+            if child.action == "preferences" || child.title.hasPrefix("偏好设置") {
+                return nil
+            }
+            return removingPreferences(from: child)
+        }
+        return MenuItem(
+            title: item.title,
+            action: item.action,
+            value: item.value,
+            statusTitle: item.statusTitle,
+            keyEquivalent: item.keyEquivalent,
+            children: (children?.isEmpty == false) ? children : nil
+        )
     }
 
     private func makeNSMenuItem(from item: MenuItem) -> NSMenuItem {
@@ -143,10 +224,24 @@ final class MenuController: NSObject, NSMenuDelegate {
             nsItem.representedObject = nil
             nsItem.target = self
             nsItem.action = #selector(quitApp)
+        case "preferences":
+            nsItem.representedObject = nil
+            nsItem.target = self
+            nsItem.action = #selector(showPreferences(_:))
         default:
             nsItem.representedObject = nil
             nsItem.target = nil
             nsItem.action = nil
+        }
+        applyKeyEquivalent(nsItem, key: item.keyEquivalent)
+    }
+
+    private func applyKeyEquivalent(_ nsItem: NSMenuItem, key: String?) {
+        if let key, !key.isEmpty {
+            nsItem.keyEquivalent = key
+            nsItem.keyEquivalentModifierMask = .command
+        } else {
+            nsItem.keyEquivalent = ""
         }
     }
 
@@ -170,7 +265,7 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// 菜单打开时就地更新标题/动作，避免替换整个 NSMenu 导致菜单关闭或数值冻结。
     private func updateOpenMenu(_ menu: NSMenu, with items: [MenuItem]) {
         let footerCount = 2 // separator + lastUpdated
-        let expectedContentCount = items.isEmpty ? 1 : items.count
+        let expectedContentCount = items.isEmpty ? 2 : items.count
         let currentContentCount = max(0, menu.numberOfItems - footerCount)
 
         if currentContentCount != expectedContentCount {
@@ -179,8 +274,11 @@ final class MenuController: NSObject, NSMenuDelegate {
         }
 
         if items.isEmpty {
-            if let quitItem = menu.item(at: 0), quitItem.action == #selector(quitApp) {
-                quitItem.title = "退出 Glance"
+            let preferences = menu.item(at: 0)
+            let quitItem = menu.item(at: 1)
+            if preferences?.action == #selector(showPreferences(_:)), quitItem?.action == #selector(quitApp) {
+                preferences?.title = "偏好设置…"
+                quitItem?.title = "退出 Glance"
             } else {
                 replaceOpenMenuContent(menu, with: items)
             }
@@ -194,6 +292,7 @@ final class MenuController: NSObject, NSMenuDelegate {
             }
             updateNSMenuItem(nsItem, with: item)
         }
+        ensurePreferencesShown(in: menu)
     }
 
     private func replaceOpenMenuContent(_ menu: NSMenu, with items: [MenuItem]) {
@@ -203,12 +302,14 @@ final class MenuController: NSObject, NSMenuDelegate {
             menu.removeItem(at: 0)
         }
         if items.isEmpty {
-            menu.insertItem(makeQuitItem(), at: 0)
+            menu.insertItem(makePreferencesItem(), at: 0)
+            menu.insertItem(makeQuitItem(), at: 1)
         } else {
             for (index, item) in items.enumerated() {
                 menu.insertItem(makeNSMenuItem(from: item), at: index)
             }
         }
+        ensurePreferencesShown(in: menu)
     }
 
     private func updateNSMenuItem(_ nsItem: NSMenuItem, with item: MenuItem) {
@@ -249,8 +350,53 @@ final class MenuController: NSObject, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         guard menu === statusItem.menu else { return }
         isMenuOpen = true
+        // 打开菜单时再确认一次位置：和「快捷操作」平级，并紧挨在它下面。
+        ensurePreferencesShown(in: menu)
         updateLastUpdatedItem(in: menu)
         startRefreshTimer(for: menu)
+    }
+
+    private func ensurePreferencesShown(in menu: NSMenu) {
+        menu.autoenablesItems = false
+        for top in menu.items {
+            guard let submenu = top.submenu else { continue }
+            submenu.autoenablesItems = false
+            for nested in submenu.items where isPreferencesItem(nested) {
+                submenu.removeItem(nested)
+            }
+        }
+
+        let item = menu.items.first(where: isPreferencesItem) ?? makePreferencesItem()
+        item.title = "偏好设置…"
+        item.target = self
+        item.action = #selector(showPreferences(_:))
+        item.keyEquivalent = ","
+        item.keyEquivalentModifierMask = .command
+        item.isHidden = false
+        item.isEnabled = true
+
+        guard let quickIndex = menu.items.firstIndex(where: { $0.title == "快捷操作" }) else {
+            if item.menu == nil {
+                if let separator = menu.items.firstIndex(where: { $0.isSeparatorItem }) {
+                    menu.insertItem(item, at: separator)
+                } else {
+                    menu.addItem(item)
+                }
+            }
+            return
+        }
+        if menu.items.firstIndex(where: { $0 === item }) == quickIndex + 1 {
+            return
+        }
+        if item.menu != nil {
+            item.menu?.removeItem(item)
+        }
+        let insertAt = (menu.items.firstIndex(where: { $0.title == "快捷操作" }) ?? quickIndex) + 1
+        menu.insertItem(item, at: min(insertAt, menu.numberOfItems))
+    }
+
+    private func isPreferencesItem(_ item: NSMenuItem) -> Bool {
+        item.action == #selector(showPreferences(_:)) || item.title.hasPrefix("偏好设置")
     }
 
     func menuDidClose(_ menu: NSMenu) {
@@ -304,6 +450,10 @@ final class MenuController: NSObject, NSMenuDelegate {
     }
 
     // MARK: - Actions
+
+    @objc func showPreferences(_ sender: Any?) {
+        preferencesWindowController.present()
+    }
 
     @objc private func selectSymbol(_ sender: NSMenuItem) {
         guard let symbol = sender.representedObject as? String else { return }
