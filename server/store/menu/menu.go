@@ -29,11 +29,12 @@ var (
 
 // Item 与 macOS 客户端 MenuItem 字段对应。
 type Item struct {
-	Title       string  `json:"title"`
-	Action      *string `json:"action,omitempty"`
-	Value       *string `json:"value,omitempty"`
-	StatusTitle *string `json:"status_title,omitempty"`
-	Children    []Item  `json:"children,omitempty"`
+	Title         string  `json:"title"`
+	Action        *string `json:"action,omitempty"`
+	Value         *string `json:"value,omitempty"`
+	StatusTitle   *string `json:"status_title,omitempty"`
+	KeyEquivalent *string `json:"key_equivalent,omitempty"` // 快捷键字符，修饰键由客户端固定为 Command
+	Children      []Item  `json:"children,omitempty"`
 }
 
 // BinanceSettings 币安相关配置，写在 menu.json 的 binance 字段中。
@@ -233,7 +234,10 @@ func renderItems(items []Item, ctx *templateContext) []Item {
 }
 
 func renderItem(item Item, ctx *templateContext) Item {
-	out := Item{Title: renderTemplate(item.Title, ctx)}
+	out := Item{
+		Title:         renderTemplate(item.Title, ctx),
+		KeyEquivalent: item.KeyEquivalent,
+	}
 	if item.Action != nil {
 		action := renderTemplate(*item.Action, ctx)
 		out.Action = &action
