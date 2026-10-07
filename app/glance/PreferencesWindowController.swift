@@ -30,7 +30,6 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         window.delegate = self
         if #available(macOS 11.0, *) {
             window.toolbarStyle = .preference
-            window.titleVisibility = .hidden
             window.titlebarSeparatorStyle = .line
         }
         if !window.setFrameAutosaveName("GlancePreferences") {
@@ -113,7 +112,7 @@ private final class PictureInPictureSettingsViewController: NSViewController {
     private let scrollView = NSScrollView()
     private let previewBox = NSView()
     private let pipButton = NSButton()
-    private let hint = NSTextField(wrappingLabelWithString: "开启画中画后，行情会按固定比例铺满系统画中画。缩放窗口时画面会等比放大，数据刷新时也会同步更新。")
+    private let hint = NSTextField(wrappingLabelWithString: "开启画中画后，数据刷新时会同步更新。")
     private let fallbackImage = NSImageView()
     private var quotes: [PiPQuote] = []
     private var menuObserver: NSObjectProtocol?

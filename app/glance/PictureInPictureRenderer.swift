@@ -62,7 +62,9 @@ final class PictureInPictureRenderer: NSObject, PictureInPicturePresenting, AVPi
     private var wantsStart = false
     private var startGeneration = 0
     private var movieGeneration = 0
+    private var isPublishing = false
     private var movieURL: URL?
+    private var carrierAsset: AVAsset?
     private weak var previewContainer: NSView?
     private let picturePixelSize = CGSize(width: 1600, height: 1000)
 
@@ -89,6 +91,7 @@ final class PictureInPictureRenderer: NSObject, PictureInPicturePresenting, AVPi
         super.init()
         player.isMuted = true
         player.actionAtItemEnd = .none
+        player.automaticallyWaitsToMinimizeStalling = false
         sampleHost.playerLayer.player = player
         NotificationCenter.default.addObserver(
             self,
@@ -113,7 +116,14 @@ final class PictureInPictureRenderer: NSObject, PictureInPicturePresenting, AVPi
         let changed = lines != self.lines || player.currentItem == nil
         self.lines = lines
         guard changed else { return }
-        publishMovie()
+        guard let pixelBuffer = PiPFrame.pixelBuffer(lines: lines, pixelSize: picturePixelSize) else { return }
+        PiPFrameStore.shared.update(pixelBuffer)
+        if player.currentItem == nil {
+            publishMovie()
+        } else {
+            // 播放器停住时不会再要新帧，画中画就会一直停在旧画面上。
+            player.play()
+        }
     }
 
     func prepareIfNeeded() {
@@ -232,34 +242,90 @@ final class PictureInPictureRenderer: NSObject, PictureInPicturePresenting, AVPi
         }
     }
 
+    /// 承载视频只生成一次。之后每帧都由合成器重画，刷新时不再换片，所以不会闪。
     private func publishMovie() {
-        guard let pixelBuffer = PiPFrame.pixelBuffer(lines: lines, pixelSize: picturePixelSize) else { return }
+        guard player.currentItem == nil, !isPublishing else { return }
+        guard let pixelBuffer = PiPFrameStore.shared.current() else { return }
+        isPublishing = true
         movieGeneration += 1
         let generation = movieGeneration
-        let previousURL = movieURL
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let url = try? PiPMovie.write(pixelBuffer: pixelBuffer) else { return }
-            DispatchQueue.main.async {
-                guard let self, self.movieGeneration == generation else {
-                    try? FileManager.default.removeItem(at: url)
-                    return
-                }
-                let item = AVPlayerItem(url: url)
-                self.player.replaceCurrentItem(with: item)
-                self.player.play()
-                self.movieURL = url
-                if let previousURL {
-                    try? FileManager.default.removeItem(at: previousURL)
-                }
-                if self.wantsStart {
-                    self.prepareIfNeeded()
-                    if self.pipController?.isPictureInPicturePossible == true {
-                        self.wantsStart = false
-                        self.pipController?.startPictureInPicture()
+            let url: URL
+            do {
+                url = try PiPMovie.write(pixelBuffer: pixelBuffer)
+            } catch {
+                DispatchQueue.main.async { self?.isPublishing = false }
+                return
+            }
+            let asset = AVURLAsset(url: url)
+            asset.loadValuesAsynchronously(forKeys: ["tracks", "duration"]) {
+                DispatchQueue.main.async {
+                    guard let self, self.movieGeneration == generation, self.player.currentItem == nil else {
+                        try? FileManager.default.removeItem(at: url)
+                        self?.isPublishing = false
+                        return
+                    }
+                    guard asset.statusOfValue(forKey: "tracks", error: nil) == .loaded,
+                          let sourceTrack = asset.tracks(withMediaType: .video).first,
+                          let item = self.makeCarrierItem(sourceTrack: sourceTrack) else {
+                        try? FileManager.default.removeItem(at: url)
+                        self.isPublishing = false
+                        return
+                    }
+                    self.carrierAsset = asset
+                    self.movieURL = url
+                    self.player.replaceCurrentItem(with: item)
+                    self.player.play()
+                    if self.wantsStart {
+                        self.prepareIfNeeded()
+                        if self.pipController?.isPictureInPicturePossible == true {
+                            self.wantsStart = false
+                            self.pipController?.startPictureInPicture()
+                        }
                     }
                 }
             }
         }
+    }
+
+    /// 把同一段短片接成一小时，播放器会一直要新帧，合成器就能把最新行情画上去。
+    private func makeCarrierItem(sourceTrack: AVAssetTrack) -> AVPlayerItem? {
+        let loadedDuration = sourceTrack.timeRange.duration
+        let clipDuration = loadedDuration.isNumeric && loadedDuration.seconds > 0.1
+            ? loadedDuration
+            : CMTime(value: CMTimeValue(PiPMovie.frameCount), timescale: PiPMovie.timescale)
+        let composition = AVMutableComposition()
+        guard let track = composition.addMutableTrack(
+            withMediaType: .video,
+            preferredTrackID: kCMPersistentTrackID_Invalid
+        ) else { return nil }
+        let repeats = max(1, Int((3600 / clipDuration.seconds).rounded(.up)))
+        var cursor = CMTime.zero
+        for _ in 0..<repeats {
+            do {
+                try track.insertTimeRange(CMTimeRange(start: .zero, duration: clipDuration), of: sourceTrack, at: cursor)
+            } catch {
+                return nil
+            }
+            cursor = CMTimeAdd(cursor, clipDuration)
+        }
+        guard let videoComposition = makeComposition(track: track, duration: cursor) else { return nil }
+        let item = AVPlayerItem(asset: composition)
+        item.videoComposition = videoComposition
+        return item
+    }
+
+    private func makeComposition(track: AVAssetTrack, duration: CMTime) -> AVVideoComposition? {
+        let instruction = AVMutableVideoCompositionInstruction()
+        instruction.timeRange = CMTimeRange(start: .zero, duration: duration)
+        instruction.layerInstructions = [AVMutableVideoCompositionLayerInstruction(assetTrack: track)]
+
+        let composition = AVMutableVideoComposition()
+        composition.customVideoCompositorClass = PiPCompositor.self
+        composition.renderSize = picturePixelSize
+        composition.frameDuration = CMTime(value: 1, timescale: PiPMovie.timescale)
+        composition.instructions = [instruction]
+        return composition
     }
 
     @objc private func replayCurrentItem(_ notification: Notification) {
@@ -280,7 +346,83 @@ final class PictureInPictureRenderer: NSObject, PictureInPicturePresenting, AVPi
     }
 }
 
+private final class PiPFrameStore {
+    static let shared = PiPFrameStore()
+    private let lock = NSLock()
+    private var buffer: CVPixelBuffer?
+
+    func update(_ buffer: CVPixelBuffer) {
+        lock.lock()
+        self.buffer = buffer
+        lock.unlock()
+    }
+
+    func current() -> CVPixelBuffer? {
+        lock.lock()
+        defer { lock.unlock() }
+        return buffer
+    }
+}
+
+@objc(GlancePiPCompositor)
+final class PiPCompositor: NSObject, AVVideoCompositing {
+    var sourcePixelBufferAttributes: [String: Any]? = [
+        kCVPixelBufferPixelFormatTypeKey as String: [
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+            kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+            kCVPixelFormatType_32BGRA,
+        ],
+    ]
+    var requiredPixelBufferAttributesForRenderContext: [String: Any] = [
+        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+    ]
+
+    func renderContextChanged(_ newRenderContext: AVVideoCompositionRenderContext) {}
+
+    func cancelAllPendingVideoCompositionRequests() {}
+
+    func startRequest(_ request: AVAsynchronousVideoCompositionRequest) {
+        for trackID in request.sourceTrackIDs {
+            _ = request.sourceFrame(byTrackID: trackID.int32Value)
+        }
+        guard let output = request.renderContext.newPixelBuffer() else {
+            request.finish(with: CocoaError(.coderInvalidValue))
+            return
+        }
+        if let latest = PiPFrameStore.shared.current() {
+            Self.draw(latest, into: output)
+        }
+        request.finish(withComposedVideoFrame: output)
+    }
+
+    private static func draw(_ source: CVPixelBuffer, into destination: CVPixelBuffer) {
+        guard CVPixelBufferLockBaseAddress(source, .readOnly) == kCVReturnSuccess,
+              CVPixelBufferLockBaseAddress(destination, []) == kCVReturnSuccess,
+              let sourceAddress = CVPixelBufferGetBaseAddress(source),
+              let destinationAddress = CVPixelBufferGetBaseAddress(destination) else { return }
+        defer {
+            CVPixelBufferUnlockBaseAddress(source, .readOnly)
+            CVPixelBufferUnlockBaseAddress(destination, [])
+        }
+        let width = min(CVPixelBufferGetWidth(source), CVPixelBufferGetWidth(destination))
+        let height = min(CVPixelBufferGetHeight(source), CVPixelBufferGetHeight(destination))
+        let sourceRow = CVPixelBufferGetBytesPerRow(source)
+        let destinationRow = CVPixelBufferGetBytesPerRow(destination)
+        let rowBytes = min(width * 4, min(sourceRow, destinationRow))
+        for row in 0..<height {
+            memcpy(
+                destinationAddress.advanced(by: row * destinationRow),
+                sourceAddress.advanced(by: row * sourceRow),
+                rowBytes
+            )
+        }
+    }
+}
+
 private enum PiPMovie {
+    static let timescale: Int32 = 4
+    static let frameCount = 32
+
     static func write(pixelBuffer: CVPixelBuffer) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("glance-pip-\(UUID().uuidString).mov")
@@ -293,7 +435,7 @@ private enum PiPMovie {
             AVVideoHeightKey: height,
             AVVideoCompressionPropertiesKey: [
                 AVVideoAverageBitRateKey: max(width * height * 8, 8_000_000),
-                AVVideoMaxKeyFrameIntervalKey: 1,
+                AVVideoMaxKeyFrameIntervalKey: Int(timescale),
                 AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
             ],
         ])
@@ -304,6 +446,7 @@ private enum PiPMovie {
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
                 kCVPixelBufferWidthKey as String: width,
                 kCVPixelBufferHeightKey as String: height,
+                kCVPixelBufferIOSurfacePropertiesKey as String: [:] as CFDictionary,
             ]
         )
         guard writer.canAdd(input) else {
@@ -314,16 +457,18 @@ private enum PiPMovie {
             throw writer.error ?? CocoaError(.fileWriteUnknown)
         }
         writer.startSession(atSourceTime: .zero)
+        guard let pool = adaptor.pixelBufferPool else {
+            writer.cancelWriting()
+            throw CocoaError(.fileWriteUnknown)
+        }
 
         let ready = DispatchSemaphore(value: 0)
-        let holdUntil = CMTime(seconds: 36000, preferredTimescale: 600)
-        let samples = [pixelBuffer, Self.copy(pixelBuffer) ?? pixelBuffer]
-        let times = [CMTime.zero, holdUntil]
         var nextIndex = 0
         var didFinish = false
         input.requestMediaDataWhenReady(on: DispatchQueue(label: "glance.pip.movie")) {
-            while input.isReadyForMoreMediaData, nextIndex < times.count {
-                guard adaptor.append(samples[nextIndex], withPresentationTime: times[nextIndex]) else {
+            while input.isReadyForMoreMediaData, nextIndex < frameCount {
+                guard let sample = Self.pooledCopy(of: pixelBuffer, pool: pool),
+                      adaptor.append(sample, withPresentationTime: CMTime(value: CMTimeValue(nextIndex), timescale: timescale)) else {
                     if !didFinish {
                         didFinish = true
                         input.markAsFinished()
@@ -334,10 +479,10 @@ private enum PiPMovie {
                 }
                 nextIndex += 1
             }
-            guard nextIndex == times.count, !didFinish else { return }
+            guard nextIndex == frameCount, !didFinish else { return }
             didFinish = true
             input.markAsFinished()
-            writer.endSession(atSourceTime: holdUntil)
+            writer.endSession(atSourceTime: CMTime(value: CMTimeValue(frameCount), timescale: timescale))
             writer.finishWriting {
                 ready.signal()
             }
@@ -350,41 +495,30 @@ private enum PiPMovie {
         return url
     }
 
-    private static func copy(_ source: CVPixelBuffer) -> CVPixelBuffer? {
-        let width = CVPixelBufferGetWidth(source)
-        let height = CVPixelBufferGetHeight(source)
-        let attrs: [CFString: Any] = [
-            kCVPixelBufferCGImageCompatibilityKey: true,
-            kCVPixelBufferCGBitmapContextCompatibilityKey: true,
-            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
-        ]
-        var copy: CVPixelBuffer?
-        guard CVPixelBufferCreate(
-            kCFAllocatorDefault,
-            width,
-            height,
-            CVPixelBufferGetPixelFormatType(source),
-            attrs as CFDictionary,
-            &copy
-        ) == kCVReturnSuccess, let copy else { return nil }
+    private static func pooledCopy(of source: CVPixelBuffer, pool: CVPixelBufferPool) -> CVPixelBuffer? {
+        var destination: CVPixelBuffer?
+        guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &destination) == kCVReturnSuccess,
+              let destination else { return nil }
         guard CVPixelBufferLockBaseAddress(source, .readOnly) == kCVReturnSuccess,
-              CVPixelBufferLockBaseAddress(copy, []) == kCVReturnSuccess,
+              CVPixelBufferLockBaseAddress(destination, []) == kCVReturnSuccess,
               let sourceAddress = CVPixelBufferGetBaseAddress(source),
-              let copyAddress = CVPixelBufferGetBaseAddress(copy) else { return nil }
+              let destinationAddress = CVPixelBufferGetBaseAddress(destination) else { return nil }
         defer {
             CVPixelBufferUnlockBaseAddress(source, .readOnly)
-            CVPixelBufferUnlockBaseAddress(copy, [])
+            CVPixelBufferUnlockBaseAddress(destination, [])
         }
+        let width = min(CVPixelBufferGetWidth(source), CVPixelBufferGetWidth(destination))
+        let height = min(CVPixelBufferGetHeight(source), CVPixelBufferGetHeight(destination))
         let sourceRow = CVPixelBufferGetBytesPerRow(source)
-        let copyRow = CVPixelBufferGetBytesPerRow(copy)
-        let rowBytes = min(sourceRow, copyRow)
+        let destinationRow = CVPixelBufferGetBytesPerRow(destination)
+        let rowBytes = min(width * 4, min(sourceRow, destinationRow))
         for row in 0..<height {
             memcpy(
-                copyAddress.advanced(by: row * copyRow),
+                destinationAddress.advanced(by: row * destinationRow),
                 sourceAddress.advanced(by: row * sourceRow),
                 rowBytes
             )
         }
-        return copy
+        return destination
     }
 }
