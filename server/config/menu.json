@@ -13,7 +13,8 @@
     "api_secret": "",
     "base_url": "https://api.binance.com",
     "futures_base_url": "https://fapi.binance.com",
-    "fetch_interval_seconds": 3
+    "fetch_method": "http", // 可填 http 或 websocket
+    "http_fetch_interval_seconds": 3
   },
   "longbridge": {
     "symbols": [
@@ -24,12 +25,13 @@
     "app_secret": "",
     "access_token": "",
     "region": "cn",
-    "fetch_interval_seconds": 3
+    "fetch_method": "http", // 可填 http 或 websocket
+    "http_fetch_interval_seconds": 3
   },
   "cmb": {
     "enabled": true,
     "url": "https://fx.cmbchina.com/api/v1/fx/rate",
-    "fetch_interval_seconds": 60
+    "http_fetch_interval_seconds": 60
   },
   "menu": [
     {

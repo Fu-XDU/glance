@@ -20,15 +20,19 @@ const (
 	defaultBaseURL       = "https://api.binance.com"
 	defaultFetchInterval = 10 * time.Second
 	equityQuotePath      = "/sapi/v1/equity/market/quote"
+
+	FetchMethodHTTP      = "http"
+	FetchMethodWebSocket = "websocket"
 )
 
-// Config Binance REST 客户端配置。
+// Config Binance 行情客户端配置。
 type Config struct {
 	BaseURL        string
 	FuturesBaseURL string
 	APIKey         string
 	APISecret      string
 	Symbols        []SymbolSpec
+	FetchMethod    string
 	FetchInterval  time.Duration
 }
 
@@ -99,14 +103,28 @@ func Symbols() []string {
 	return out
 }
 
-// Start 启动后台定时拉取，并在启动时立即拉取一次。
+// Start 按配置启动行情获取。websocket 用于现货和合约；股票报价仍按 HTTP 间隔拉取。
 func Start() {
-	refreshPrices()
+	if cfg.FetchMethod == FetchMethodWebSocket {
+		startWebSocket()
+		return
+	}
+	startHTTP(cfg.Symbols)
+}
+
+func startHTTP(specs []SymbolSpec) {
+	if len(specs) == 0 {
+		return
+	}
+	refresh := func() {
+		storePrices(specs, fetchAllPrices(specs))
+	}
+	refresh()
 	go func() {
 		ticker := time.NewTicker(cfg.FetchInterval)
 		defer ticker.Stop()
 		for range ticker.C {
-			refreshPrices()
+			refresh()
 		}
 	}()
 }
@@ -144,13 +162,16 @@ func BTCUSDTPrice() string {
 }
 
 func refreshPrices() {
-	rawPrices := fetchAllPrices(cfg.Symbols)
+	storePrices(cfg.Symbols, fetchAllPrices(cfg.Symbols))
+}
 
+func storePrices(specs []SymbolSpec, rawPrices map[string]string) {
 	mu.Lock()
 	defer mu.Unlock()
 
 	lastUpdated = time.Now()
-	for _, spec := range cfg.Symbols {
+	for _, spec := range specs {
+		spec = spec.Normalize()
 		key := spec.CacheKey()
 		raw, ok := rawPrices[key]
 		if !ok || raw == "" {
@@ -161,6 +182,23 @@ func refreshPrices() {
 		}
 		displayPrice[key] = symbol.FormatPrice(raw)
 		log.Infof("%v: %v", key, displayPrice[key])
+	}
+}
+
+func storeOne(spec SymbolSpec, raw string) {
+	if raw == "" {
+		return
+	}
+	spec = spec.Normalize()
+	formatted := symbol.FormatPrice(raw)
+	key := spec.CacheKey()
+	mu.Lock()
+	prev := displayPrice[key]
+	displayPrice[key] = formatted
+	lastUpdated = time.Now()
+	mu.Unlock()
+	if prev != formatted {
+		log.Infof("%v: %v", key, formatted)
 	}
 }
 

@@ -18,6 +18,9 @@ import (
 const (
 	defaultQuoteTimeout  = 8 * time.Second
 	defaultFetchInterval = 10 * time.Second
+
+	FetchMethodHTTP      = "http"
+	FetchMethodWebSocket = "websocket"
 )
 
 // Config LongBridge 行情配置。凭证空字段回退到环境变量。
@@ -27,12 +30,19 @@ type Config struct {
 	AccessToken   string
 	Region        string
 	Symbols       []symbol.Spec
+	FetchMethod   string
 	FetchInterval time.Duration
 }
 
 type quoteClient interface {
 	Quote(ctx context.Context, symbols []string) ([]*quote.SecurityQuote, error)
 	Close() error
+}
+
+type quoteStreamer interface {
+	quoteClient
+	OnQuote(func(*quote.PushQuote))
+	Subscribe(ctx context.Context, symbols []string, subTypes []quote.SubType, isFirstPush bool) error
 }
 
 var (
@@ -103,11 +113,22 @@ func Price(query string) string {
 	return "--"
 }
 
-// Start 启动后台定时拉取。无标的时不连接。
+// Start 按配置启动行情获取。无标的时不连接。
 func Start() {
 	if len(cfg.Symbols) == 0 {
 		return
 	}
+	if cfg.FetchMethod == FetchMethodWebSocket {
+		if err := startQuoteStream(); err != nil {
+			log.Errorf("longbridge websocket unavailable, fallback to http: %v", err)
+			startHTTP()
+		}
+		return
+	}
+	startHTTP()
+}
+
+func startHTTP() {
 	refreshPrices()
 	go func() {
 		ticker := time.NewTicker(cfg.FetchInterval)
@@ -152,6 +173,68 @@ func refreshPrices() {
 		displayPrice[key] = symbol.FormatPrice(raw)
 		log.Infof("%v: %v", key, displayPrice[key])
 	}
+}
+
+func storeOne(spec symbol.Spec, raw string) {
+	if raw == "" {
+		return
+	}
+	spec = spec.Normalize()
+	formatted := symbol.FormatPrice(raw)
+	key := spec.CacheKey()
+	mu.Lock()
+	prev := displayPrice[key]
+	displayPrice[key] = formatted
+	lastUpdated = time.Now()
+	mu.Unlock()
+	if prev != formatted {
+		log.Infof("%v: %v", key, formatted)
+	}
+}
+
+func startQuoteStream() error {
+	refreshPrices()
+
+	qctx, err := ensureClient()
+	if err != nil {
+		return err
+	}
+	streamer, ok := qctx.(quoteStreamer)
+	if !ok {
+		return fmt.Errorf("quote client does not support subscribe")
+	}
+	streamer.OnQuote(func(q *quote.PushQuote) {
+		raw := pushedPrice(q)
+		if raw == "" || q == nil || q.Symbol == "" {
+			return
+		}
+		spec := symbol.ResolveSpec(q.Symbol, cfg.Symbols)
+		if spec.Symbol == "" {
+			return
+		}
+		storeOne(spec, raw)
+	})
+
+	symbols := make([]string, 0, len(cfg.Symbols))
+	for _, spec := range cfg.Symbols {
+		if spec.Symbol != "" {
+			symbols = append(symbols, spec.Symbol)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), defaultQuoteTimeout)
+	defer cancel()
+	if err := streamer.Subscribe(ctx, symbols, []quote.SubType{quote.SubTypeQuote}, true); err != nil {
+		return err
+	}
+	log.Infof("longbridge websocket subscribed: %s", strings.Join(symbols, ","))
+	return nil
+}
+
+func pushedPrice(q *quote.PushQuote) string {
+	if q == nil || q.LastDone == nil || q.LastDone.IsZero() {
+		return ""
+	}
+	return q.LastDone.String()
 }
 
 // FetchQuotes 按配置中的 symbol 原样向 LongBridge 询价，不做后缀改写。

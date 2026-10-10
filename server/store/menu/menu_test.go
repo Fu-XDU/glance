@@ -12,6 +12,20 @@ import (
 	"glance/store/symbol"
 )
 
+func TestStripJSONComments_keepsURLs(t *testing.T) {
+	in := []byte("{\n  \"base_url\": \"https://api.binance.com\", // 可填 http 或 websocket\n  \"note\": \"a//b\"\n}\n")
+	got := string(stripJSONComments(in))
+	if !strings.Contains(got, "https://api.binance.com") {
+		t.Fatalf("url was stripped: %s", got)
+	}
+	if strings.Contains(got, "可填") {
+		t.Fatalf("comment remained: %s", got)
+	}
+	if !strings.Contains(got, "a//b") {
+		t.Fatalf("string contents were stripped: %s", got)
+	}
+}
+
 func TestLoadResponse_rendersTemplates(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "menu.json")
@@ -163,7 +177,8 @@ func TestLoadLongBridgeConfig_symbols(t *testing.T) {
     "app_secret": "secret-1",
     "access_token": "token-1",
     "region": "cn",
-    "fetch_interval_seconds": 3
+    "fetch_method": "websocket",
+    "http_fetch_interval_seconds": 3
   },
   "menu": [
     {"title": "AAPL {{stocks:AAPL}}", "action": "select", "value": "stocks:AAPL"},
@@ -187,7 +202,7 @@ func TestLoadLongBridgeConfig_symbols(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.AppKey != "key-1" || cfg.FetchInterval != 3*time.Second {
+	if cfg.AppKey != "key-1" || cfg.FetchInterval != 3*time.Second || cfg.FetchMethod != "websocket" {
 		t.Fatalf("unexpected longbridge config: %+v", cfg)
 	}
 	if len(cfg.Symbols) != 2 || cfg.Symbols[0].Symbol != "GOOG.US" || cfg.Symbols[1].Symbol != "00700.HK" {
@@ -320,7 +335,8 @@ func TestLoadBinanceConfig_fromBinanceBlock(t *testing.T) {
     "api_key": "key-1",
     "api_secret": "secret-1",
     "base_url": "https://example.com",
-    "fetch_interval_seconds": 15
+    "fetch_method": "http",
+    "http_fetch_interval_seconds": 15
   },
   "menu": []
 }`
@@ -336,8 +352,8 @@ func TestLoadBinanceConfig_fromBinanceBlock(t *testing.T) {
 	if cfg.APIKey != "key-1" || cfg.APISecret != "secret-1" || cfg.BaseURL != "https://example.com" {
 		t.Fatalf("unexpected binance credentials/base url: %+v", cfg)
 	}
-	if cfg.FetchInterval != 15*time.Second {
-		t.Fatalf("unexpected fetch interval: %v", cfg.FetchInterval)
+	if cfg.FetchInterval != 15*time.Second || cfg.FetchMethod != "http" {
+		t.Fatalf("unexpected fetch interval: %v method %s", cfg.FetchInterval, cfg.FetchMethod)
 	}
 	if len(cfg.Symbols) != 2 || cfg.Symbols[0].Symbol != "BTCUSDT" || cfg.Symbols[1].Symbol != "ETHUSDT" {
 		t.Fatalf("unexpected symbols: %#v", cfg.Symbols)
@@ -351,7 +367,7 @@ func TestLoadCmbConfig(t *testing.T) {
   "cmb": {
     "enabled": true,
     "url": "https://example.com/fx",
-    "fetch_interval_seconds": 90
+    "http_fetch_interval_seconds": 90
   },
   "menu": []
 }`

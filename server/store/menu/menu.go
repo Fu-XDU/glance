@@ -39,30 +39,32 @@ type Item struct {
 
 // BinanceSettings 币安相关配置，写在 menu.json 的 binance 字段中。
 type BinanceSettings struct {
-	Symbols              json.RawMessage `json:"symbols,omitempty"`
-	APIKey               string          `json:"api_key,omitempty"`
-	APISecret            string          `json:"api_secret,omitempty"`
-	BaseURL              string          `json:"base_url,omitempty"`
-	FuturesBaseURL       string          `json:"futures_base_url,omitempty"`
-	FetchIntervalSeconds *int            `json:"fetch_interval_seconds,omitempty"`
+	Symbols                  json.RawMessage `json:"symbols,omitempty"`
+	APIKey                   string          `json:"api_key,omitempty"`
+	APISecret                string          `json:"api_secret,omitempty"`
+	BaseURL                  string          `json:"base_url,omitempty"`
+	FuturesBaseURL           string          `json:"futures_base_url,omitempty"`
+	FetchMethod              string          `json:"fetch_method,omitempty"` // http 或 websocket，默认 http
+	HTTPFetchIntervalSeconds *int            `json:"http_fetch_interval_seconds,omitempty"`
 }
 
 // CmbSettings 招商银行外汇配置，写在 menu.json 的 cmb 字段中。
 type CmbSettings struct {
-	Enabled              *bool  `json:"enabled,omitempty"`
-	URL                  string `json:"url,omitempty"`
-	FetchIntervalSeconds *int   `json:"fetch_interval_seconds,omitempty"`
+	Enabled                  *bool  `json:"enabled,omitempty"`
+	URL                      string `json:"url,omitempty"`
+	HTTPFetchIntervalSeconds *int   `json:"http_fetch_interval_seconds,omitempty"`
 }
 
 // LongBridgeSettings 长桥行情配置，写在 menu.json 的 longbridge 字段中。
 // 凭证空字段回退到环境变量 LONGBRIDGE_APP_KEY / LONGBRIDGE_APP_SECRET / LONGBRIDGE_ACCESS_TOKEN / LONGBRIDGE_REGION。
 type LongBridgeSettings struct {
-	Symbols              json.RawMessage `json:"symbols,omitempty"`
-	AppKey               string          `json:"app_key,omitempty"`
-	AppSecret            string          `json:"app_secret,omitempty"`
-	AccessToken          string          `json:"access_token,omitempty"`
-	Region               string          `json:"region,omitempty"`
-	FetchIntervalSeconds *int            `json:"fetch_interval_seconds,omitempty"`
+	Symbols                  json.RawMessage `json:"symbols,omitempty"`
+	AppKey                   string          `json:"app_key,omitempty"`
+	AppSecret                string          `json:"app_secret,omitempty"`
+	AccessToken              string          `json:"access_token,omitempty"`
+	Region                   string          `json:"region,omitempty"`
+	FetchMethod              string          `json:"fetch_method,omitempty"` // http 或 websocket，默认 http
+	HTTPFetchIntervalSeconds *int            `json:"http_fetch_interval_seconds,omitempty"`
 }
 
 // Config 菜单配置文件结构。
@@ -109,8 +111,9 @@ func LoadBinanceConfig() (binance.Config, error) {
 		out.APISecret = cfg.Binance.APISecret
 		out.BaseURL = cfg.Binance.BaseURL
 		out.FuturesBaseURL = cfg.Binance.FuturesBaseURL
-		if cfg.Binance.FetchIntervalSeconds != nil {
-			out.FetchInterval = time.Duration(*cfg.Binance.FetchIntervalSeconds) * time.Second
+		out.FetchMethod = normalizeFetchMethod(cfg.Binance.FetchMethod)
+		if cfg.Binance.HTTPFetchIntervalSeconds != nil {
+			out.FetchInterval = time.Duration(*cfg.Binance.HTTPFetchIntervalSeconds) * time.Second
 		}
 	}
 
@@ -140,8 +143,8 @@ func LoadCmbConfig() (cmb.Config, error) {
 		out.Enabled = *cfg.Cmb.Enabled
 	}
 	out.URL = cfg.Cmb.URL
-	if cfg.Cmb.FetchIntervalSeconds != nil {
-		out.FetchInterval = time.Duration(*cfg.Cmb.FetchIntervalSeconds) * time.Second
+	if cfg.Cmb.HTTPFetchIntervalSeconds != nil {
+		out.FetchInterval = time.Duration(*cfg.Cmb.HTTPFetchIntervalSeconds) * time.Second
 	}
 	return out, nil
 }
@@ -161,8 +164,9 @@ func LoadLongBridgeConfig() (longbridge.Config, error) {
 	out.AppSecret = cfg.LongBridge.AppSecret
 	out.AccessToken = cfg.LongBridge.AccessToken
 	out.Region = cfg.LongBridge.Region
-	if cfg.LongBridge.FetchIntervalSeconds != nil {
-		out.FetchInterval = time.Duration(*cfg.LongBridge.FetchIntervalSeconds) * time.Second
+	out.FetchMethod = normalizeFetchMethod(cfg.LongBridge.FetchMethod)
+	if cfg.LongBridge.HTTPFetchIntervalSeconds != nil {
+		out.FetchInterval = time.Duration(*cfg.LongBridge.HTTPFetchIntervalSeconds) * time.Second
 	}
 	out.Symbols, err = collectLongBridgeSymbolSpecs(cfg)
 	if err != nil {
@@ -171,13 +175,77 @@ func LoadLongBridgeConfig() (longbridge.Config, error) {
 	return out, nil
 }
 
+func normalizeFetchMethod(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "websocket", "ws":
+		return "websocket"
+	default:
+		return "http"
+	}
+}
+
+// stripJSONComments 去掉字符串之外的 // 与 /* */ 注释，便于在 menu.json 里写说明。
+func stripJSONComments(src []byte) []byte {
+	var b strings.Builder
+	b.Grow(len(src))
+	inString := false
+	escape := false
+	for i := 0; i < len(src); i++ {
+		c := src[i]
+		if inString {
+			b.WriteByte(c)
+			if escape {
+				escape = false
+				continue
+			}
+			if c == '\\' {
+				escape = true
+				continue
+			}
+			if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		if c == '"' {
+			inString = true
+			b.WriteByte(c)
+			continue
+		}
+		if c == '/' && i+1 < len(src) {
+			switch src[i+1] {
+			case '/':
+				i += 2
+				for i < len(src) && src[i] != '\n' {
+					i++
+				}
+				if i < len(src) {
+					b.WriteByte('\n')
+				}
+				continue
+			case '*':
+				i += 2
+				for i+1 < len(src) && !(src[i] == '*' && src[i+1] == '/') {
+					i++
+				}
+				if i+1 < len(src) {
+					i++
+				}
+				continue
+			}
+		}
+		b.WriteByte(c)
+	}
+	return []byte(b.String())
+}
+
 func loadConfig() (*Config, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, err
 	}
 	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	if err := json.Unmarshal(stripJSONComments(data), &cfg); err != nil {
 		return nil, err
 	}
 	if cfg.Title == "" {
