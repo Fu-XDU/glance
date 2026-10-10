@@ -5,6 +5,7 @@ go 1.25
 require (
 	github.com/Fu-XDU/mingfu_go_common v0.0.9
 	github.com/gin-gonic/gin v1.10.0
+	github.com/gorilla/websocket v1.5.0
 	github.com/labstack/gommon v0.5.0
 	github.com/longbridge/openapi-go v0.27.0
 	github.com/shopspring/decimal v1.3.1
@@ -29,7 +30,6 @@ require (
 	github.com/golang-jwt/jwt v3.2.2+incompatible // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
-	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/jinzhu/copier v0.3.5 // indirect
 	github.com/joho/godotenv v1.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect

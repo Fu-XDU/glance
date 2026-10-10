@@ -77,7 +77,8 @@ Top-level fields:
 | `api_key` / `api_secret` | Binance API credentials. **Required** for Binance `market: "stocks"` (equity MARKET_DATA needs `X-MBX-APIKEY`) |
 | `base_url` | Spot / Stocks API base (default `https://api.binance.com`) |
 | `futures_base_url` | Futures API base (default `https://fapi.binance.com`) |
-| `fetch_interval_seconds` | Server-side price refresh interval (default 10) |
+| `fetch_method` | `http` (default) or `websocket`. WebSocket uses Binance miniTicker for spot and futures. Stock quotes stay on HTTP because that endpoint has no market stream |
+| `http_fetch_interval_seconds` | HTTP polling interval (default 10). Also used for stock quotes when `fetch_method` is `websocket` |
 
 Symbol object fields:
 
@@ -105,7 +106,8 @@ Put a symbol under `binance.symbols` or `longbridge.symbols` to choose the data 
 | `app_secret` | LongBridge app secret (env: `LONGBRIDGE_APP_SECRET`) |
 | `access_token` | LongBridge access token (env: `LONGBRIDGE_ACCESS_TOKEN`) |
 | `region` | Optional. Set `cn` for mainland endpoints (env: `LONGBRIDGE_REGION`) |
-| `fetch_interval_seconds` | Server-side quote refresh interval (default 10) |
+| `fetch_method` | `http` (default) or `websocket`. WebSocket subscribes to LongBridge quote pushes |
+| `http_fetch_interval_seconds` | HTTP polling interval (default 10) |
 
 Example (LongBridge expects market-suffixed tickers such as `TSLA.US` / `700.HK`):
 
@@ -125,7 +127,7 @@ Example (LongBridge expects market-suffixed tickers such as `TSLA.US` / `700.HK`
 |-------|-------------|
 | `enabled` | Whether to poll CMB FX rates (default `true` when block omitted) |
 | `url` | FX rate endpoint (default `https://fx.cmbchina.com/api/v1/fx/rate`) |
-| `fetch_interval_seconds` | Server-side FX refresh interval (default 60) |
+| `http_fetch_interval_seconds` | Server-side FX refresh interval (default 60) |
 
 Symbols are also auto-collected from `{{SYMBOL}}` placeholders in `title` and `menu` when not listed under `binance.symbols` or `longbridge.symbols`. Auto-collected tickers are fetched from Binance.
 
