@@ -186,6 +186,15 @@ func loadConfig() (*Config, error) {
 	return &cfg, nil
 }
 
+// SnapshotJSON 返回与 GET /api/menu 相同的 JSON，供 WebSocket 推送。
+func SnapshotJSON() ([]byte, error) {
+	resp, err := LoadResponse()
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(resp)
+}
+
 // LoadResponse 读取配置并渲染动态 title / 菜单项模板。
 func LoadResponse() (*Response, error) {
 	cfg, err := loadConfig()

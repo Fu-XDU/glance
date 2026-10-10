@@ -24,6 +24,7 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         )
         window.contentViewController = tabs
         window.title = "偏好设置"
+        window.identifier = NSUserInterfaceItemIdentifier("GlancePreferences")
         window.contentMinSize = NSSize(width: PreferencesMetrics.windowWidth, height: 420)
         window.isReleasedWhenClosed = false
         super.init(window: window)
@@ -92,17 +93,6 @@ private final class PreferencesTabViewController: NSTabViewController {
         let image = NSImage(systemSymbolName: name, accessibilityDescription: label)
             ?? NSImage(systemSymbolName: fallback, accessibilityDescription: label)
         return image?.withSymbolConfiguration(config)
-    }
-}
-
-private final class GeneralSettingsViewController: NSViewController {
-    override func loadView() {
-        view = NSView(frame: NSRect(x: 0, y: 0, width: PreferencesMetrics.windowWidth, height: PreferencesMetrics.windowHeight))
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        preferredContentSize = NSSize(width: PreferencesMetrics.windowWidth, height: PreferencesMetrics.windowHeight)
     }
 }
 

@@ -3,6 +3,7 @@ import Foundation
 
 extension Notification.Name {
     static let glanceMenuDidUpdate = Notification.Name("glance.menuDidUpdate")
+    static let glanceEndpointDidChange = Notification.Name("glance.endpointDidChange")
 }
 
 final class MenuController: NSObject, NSMenuDelegate {
@@ -18,9 +19,10 @@ final class MenuController: NSObject, NSMenuDelegate {
     private let maxInterval: TimeInterval = 300
     private var isMenuOpen = false
     private var keyMonitor: Any?
+    private var endpointObserver: NSObjectProtocol?
+    private var fetchGeneration = 0
+    private var menuSocket: AnyObject?
     private lazy var preferencesWindowController = PreferencesWindowController()
-
-    private let apiURL = URL(string: "http://127.0.0.1:1423/api/menu")!
     private let selectedSymbolKey = "glance.selectedSymbol"
 
     private var selectedSymbol: String? {
@@ -40,6 +42,13 @@ final class MenuController: NSObject, NSMenuDelegate {
         statusItem.button?.title = "Glance"
         statusItem.menu = buildMenu(items: [])
         installPreferencesShortcut()
+        endpointObserver = NotificationCenter.default.addObserver(
+            forName: .glanceEndpointDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.fetchMenu()
+        }
         fetchMenu()
     }
 
@@ -47,17 +56,31 @@ final class MenuController: NSObject, NSMenuDelegate {
         if let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
         }
+        if let endpointObserver {
+            NotificationCenter.default.removeObserver(endpointObserver)
+        }
+        stopSocket()
     }
 
-    /// 状态栏菜单打开时快捷键由菜单项处理；其余时间 Glance 在前台则由这里响应 ⌘,。
+    /// 状态栏菜单打开时 ⌘, 由菜单项处理。其余时间 Glance 在前台则在这里响应 ⌘, 和 ⌘W。
     private func installPreferencesShortcut() {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, !event.isARepeat else { return event }
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard flags == .command, event.charactersIgnoringModifiers == "," else { return event }
-            if self.isMenuOpen { return event }
-            self.showPreferences(nil)
-            return nil
+            guard flags == .command else { return event }
+            switch event.charactersIgnoringModifiers {
+            case ",":
+                if self.isMenuOpen { return event }
+                self.showPreferences(nil)
+                return nil
+            case "w":
+                guard let window = NSApp.keyWindow,
+                      window.identifier?.rawValue == "GlancePreferences" else { return event }
+                window.performClose(nil)
+                return nil
+            default:
+                return event
+            }
         }
     }
 
@@ -65,33 +88,105 @@ final class MenuController: NSObject, NSMenuDelegate {
 
     func fetchMenu() {
         timer?.invalidate()
-        var request = URLRequest(url: apiURL)
+        fetchGeneration += 1
+        let generation = fetchGeneration
+        stopSocket()
+
+        let url = GlanceEndpoint.url
+        if url.scheme == "ws" || url.scheme == "wss" {
+            connectSocket(url, generation: generation)
+        } else {
+            pollHTTP(url, generation: generation)
+        }
+    }
+
+    private func pollHTTP(_ url: URL, generation: Int) {
+        var request = URLRequest(url: url)
         request.timeoutInterval = 10
         URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, self.fetchGeneration == generation else { return }
                 if let data, error == nil, let response = try? JSONDecoder().decode(MenuResponse.self, from: data) {
-                    self.lastUpdated = Date()
-                    MenuController.latestItems = response.menu
-                    self.currentMenuItems = self.injectPreferences(into: response.menu)
-                    self.applyMenuData(items: self.currentMenuItems, defaultTitle: response.title)
-                    NotificationCenter.default.post(name: .glanceMenuDidUpdate, object: nil)
-                    let requested = TimeInterval(response.refreshAfterSeconds ?? Int(self.minInterval))
-                    self.nextInterval = max(self.minInterval, min(requested, self.maxInterval))
+                    self.applyResponse(response)
                 } else {
-                    self.currentMenuItems = []
-                    self.statusItem.button?.title = "⚠"
-                    if self.isMenuOpen, let menu = self.statusItem.menu {
-                        self.replaceOpenMenuContent(menu, with: [])
-                        self.updateLastUpdatedItem(in: menu)
-                    } else {
-                        self.statusItem.menu = self.buildMenu(items: [])
-                    }
-                    self.nextInterval = min(self.nextInterval * 2, self.maxInterval)
+                    self.applyFailure()
                 }
                 self.scheduleNext()
             }
         }.resume()
+    }
+
+    private func connectSocket(_ url: URL, generation: Int) {
+        guard #available(macOS 10.15, *) else {
+            applyFailure()
+            scheduleNext()
+            return
+        }
+        let connection = MenuSocket(url: url)
+        menuSocket = connection
+        connection.task.resume()
+        receiveSocket(connection.task, generation: generation)
+    }
+
+    private func stopSocket() {
+        if #available(macOS 10.15, *), let connection = menuSocket as? MenuSocket {
+            connection.cancel()
+        }
+        menuSocket = nil
+    }
+
+    @available(macOS 10.15, *)
+    private func receiveSocket(_ task: URLSessionWebSocketTask, generation: Int) {
+        task.receive { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self, self.fetchGeneration == generation else { return }
+                switch result {
+                case .success(let message):
+                    if let data = Self.socketData(message),
+                       let response = try? JSONDecoder().decode(MenuResponse.self, from: data) {
+                        self.applyResponse(response)
+                    }
+                    self.receiveSocket(task, generation: generation)
+                case .failure:
+                    self.applyFailure()
+                    self.scheduleNext()
+                }
+            }
+        }
+    }
+
+    @available(macOS 10.15, *)
+    private static func socketData(_ message: URLSessionWebSocketTask.Message) -> Data? {
+        switch message {
+        case .string(let text):
+            return Data(text.utf8)
+        case .data(let data):
+            return data
+        @unknown default:
+            return nil
+        }
+    }
+
+    private func applyResponse(_ response: MenuResponse) {
+        lastUpdated = Date()
+        MenuController.latestItems = response.menu
+        currentMenuItems = injectPreferences(into: response.menu)
+        applyMenuData(items: currentMenuItems, defaultTitle: response.title)
+        NotificationCenter.default.post(name: .glanceMenuDidUpdate, object: nil)
+        let requested = TimeInterval(response.refreshAfterSeconds ?? Int(minInterval))
+        nextInterval = max(minInterval, min(requested, maxInterval))
+    }
+
+    private func applyFailure() {
+        currentMenuItems = []
+        statusItem.button?.title = "⚠"
+        if isMenuOpen, let menu = statusItem.menu {
+            replaceOpenMenuContent(menu, with: [])
+            updateLastUpdatedItem(in: menu)
+        } else {
+            statusItem.menu = buildMenu(items: [])
+        }
+        nextInterval = min(nextInterval * 2, self.maxInterval)
     }
 
     private func scheduleNext() {
